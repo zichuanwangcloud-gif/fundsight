@@ -1,0 +1,18 @@
+# data
+data/*.db
+data/*.sqlite
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# node (frontend 后续)
+node_modules/
+dist/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
