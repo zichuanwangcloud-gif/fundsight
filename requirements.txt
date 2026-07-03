@@ -1,0 +1,14 @@
+# 盈见 FundSight —— 依赖清单
+#
+# 核心运行时零依赖：backend/ 全部基于 Python 3 标准库
+# （http.server / sqlite3 / urllib / json / ssl），无需 pip install 任何包
+# 即可 `python3 -m backend.app` 启动。
+#
+# 以下为可选依赖，仅在启用对应可选能力时才需要安装：
+#
+#   akshare       —— 用于收盘后回填官方净值（nav_date），当前 backend 尚未
+#                     接入调用，属于规划中的可选能力，需要时再手动
+#                     `pip install akshare` 并按需接入 backend/datasource/。
+#
+# 如需安装可选依赖，取消下一行注释：
+# akshare
