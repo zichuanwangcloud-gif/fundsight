@@ -58,6 +58,19 @@ def list_holdings():
             # 距目标: 目标净值 - 当前估值
             if h["target_price"] and q["gsz"]:
                 item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
+            # 持仓收益率% = (估算市值 - 成本) / 成本 * 100
+            if h["cost_amount"] and item.get("est_value") is not None:
+                cost_return_rate = (item["est_value"] - h["cost_amount"]) / h["cost_amount"] * 100
+                item["cost_return_rate"] = round(cost_return_rate, 2)
+                # 止盈：持仓收益率 达到/超过 止盈线
+                if h["stop_profit"] is not None:
+                    item["hit_stop_profit"] = cost_return_rate >= h["stop_profit"]
+                # 止损：持仓收益率 达到/低于 止损线（止损线通常为负数，按数值直接比较）
+                if h["stop_loss"] is not None:
+                    item["hit_stop_loss"] = cost_return_rate <= h["stop_loss"]
+                # 距目标收益率
+                if h["target_rate"] is not None:
+                    item["gap_to_target_rate"] = round(h["target_rate"] - cost_return_rate, 2)
         result.append(item)
     conn.close()
     return result
