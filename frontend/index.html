@@ -69,6 +69,12 @@
     <input id="d-cost" type="number" step="0.01" placeholder="如 8500">
     <label>目标净值（预期，可留空）</label>
     <input id="d-target" type="number" step="0.0001" placeholder="如 1.80">
+    <label>目标收益率 %（可留空）</label>
+    <input id="d-target-rate" type="number" step="0.01" placeholder="如 15">
+    <label>止盈线 %（达到即提醒，可留空）</label>
+    <input id="d-profit" type="number" step="0.01" placeholder="如 10">
+    <label>止损线 %（跌破即提醒，通常为负，可留空）</label>
+    <input id="d-loss" type="number" step="0.01" placeholder="如 -8">
     <div class="btns">
       <button class="ghost" onclick="dlg.close()">取消</button>
       <button class="primary" onclick="submitHolding()">加入自选</button>
@@ -104,6 +110,7 @@ function openDlg(f) {
   $("#dlg-title").textContent = "添加自选 · " + f.name;
   $("#d-code").value = f.fund_code;
   $("#d-hold").value = $("#d-cost").value = $("#d-target").value = "";
+  $("#d-target-rate").value = $("#d-profit").value = $("#d-loss").value = "";
   dlg.showModal();
 }
 async function submitHolding() {
@@ -114,6 +121,9 @@ async function submitHolding() {
       hold_amount: $("#d-hold").value,
       cost_amount: $("#d-cost").value,
       target_price: $("#d-target").value,
+      target_rate: $("#d-target-rate").value,
+      stop_profit: $("#d-profit").value,
+      stop_loss: $("#d-loss").value,
     })
   });
   dlg.close(); load();
