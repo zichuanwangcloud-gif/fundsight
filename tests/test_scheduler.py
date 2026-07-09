@@ -90,5 +90,56 @@ class TestStartPeriodicSync(unittest.TestCase):
         self.assertTrue(t.is_alive())
 
 
+class TestQuoteRefresh(unittest.TestCase):
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._orig = db_mod.DB_PATH
+        db_mod.DB_PATH = self.path
+        db_mod.init_db(with_seed=False)
+
+    def tearDown(self):
+        db_mod.DB_PATH = self._orig
+        os.unlink(self.path)
+
+    def test_refresh_holdings_quotes_no_holdings(self):
+        # 无持仓 → 返回 0,不调 refresh_quotes
+        with patch("backend.datasource.fundgz.refresh_quotes") as mock_rq:
+            n = scheduler._refresh_holdings_quotes()
+        self.assertEqual(n, 0)
+        mock_rq.assert_not_called()
+
+    def test_refresh_holdings_quotes_calls_with_distinct_codes(self):
+        conn = sqlite3.connect(self.path)
+        conn.executemany(
+            "INSERT INTO holding(fund_code,hold_amount,created_at) VALUES (?,?,datetime('now'))",
+            [("020608", 1000.0), ("020608", 2000.0), ("005827", 3000.0)],  # 020608 重复
+        )
+        conn.commit()
+        conn.close()
+        with patch("backend.datasource.fundgz.refresh_quotes", return_value=2) as mock_rq:
+            scheduler._refresh_holdings_quotes()
+        # 应对 DISTINCT codes 调用一次
+        mock_rq.assert_called_once()
+        called_codes = mock_rq.call_args[0][1]
+        self.assertEqual(set(called_codes), {"020608", "005827"})
+
+    def test_start_quote_refresh_returns_daemon(self):
+        t = scheduler.start_quote_refresh(interval_seconds=60, quote_fn=lambda: 0, run_now=False)
+        self.assertTrue(t.daemon)
+        self.assertTrue(t.is_alive())
+
+    def test_trigger_quote_for_runs_without_blocking(self):
+        # trigger_quote_for 返回线程,不抛异常
+        called = {"code": None}
+
+        def fake_one(code):
+            called["code"] = code
+
+        t = scheduler.trigger_quote_for("020608", one_fn=fake_one)
+        t.join(timeout=2)
+        self.assertEqual(called["code"], "020608")
+
+
 if __name__ == "__main__":
     unittest.main()
