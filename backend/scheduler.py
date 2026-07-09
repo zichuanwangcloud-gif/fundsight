@@ -180,3 +180,68 @@ def trigger_quote_for(code, one_fn=None):
     t = threading.Thread(target=_run, name=f"quote-one-{code}", daemon=True)
     t.start()
     return t
+
+
+# ---- 历史净值序列:后台日更，走势图用（M7） ----
+
+def _refresh_holdings_history():
+    """对当前持仓的基金批量刷新历史净值序列。返回成功数。"""
+    from backend.datasource.nav_history import refresh_nav_history
+    conn = get_conn()
+    try:
+        codes = [r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding")]
+        if not codes:
+            return 0
+        return refresh_nav_history(conn, codes)
+    finally:
+        conn.close()
+
+
+def _refresh_one_history(code):
+    from backend.datasource.nav_history import refresh_nav_history
+    conn = get_conn()
+    try:
+        return refresh_nav_history(conn, [code])
+    finally:
+        conn.close()
+
+
+def _safe_history_refresh(hist_fn):
+    try:
+        n = hist_fn()
+        if n:
+            print(f"[scheduler] 历史净值刷新完成,更新 {n} 只持仓基金。")
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 历史净值刷新失败(不影响服务): {type(e).__name__} {e}")
+
+
+def start_history_refresh(interval_hours=24, hist_fn=None, run_now=True):
+    """启动历史净值序列定时刷新 daemon 线程(日更),返回该线程。"""
+    hist_fn = hist_fn or _refresh_holdings_history
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_history_refresh(hist_fn)
+        while True:
+            time.sleep(interval)
+            _safe_history_refresh(hist_fn)
+
+    t = threading.Thread(target=_loop, name="history-refresh", daemon=True)
+    t.start()
+    return t
+
+
+def trigger_history_for(code, one_fn=None):
+    """后台拉取单只基金历史序列(不阻塞),供新增持仓补空窗。返回线程。"""
+    one_fn = one_fn or _refresh_one_history
+
+    def _run():
+        try:
+            one_fn(code)
+        except Exception as e:  # noqa: BLE001
+            print(f"[scheduler] 新增持仓历史拉取失败 {code}: {type(e).__name__} {e}")
+
+    t = threading.Thread(target=_run, name=f"history-one-{code}", daemon=True)
+    t.start()
+    return t
