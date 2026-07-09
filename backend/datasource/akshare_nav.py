@@ -120,11 +120,11 @@ def refresh_nav(conn, codes):
         if not d:
             continue
         conn.execute(
-            """INSERT INTO fund_quote(fund_code,name,nav_date,dwjz,updated_at)
-               VALUES (:fund_code,:name,:nav_date,:nav,datetime('now','localtime'))
+            """INSERT INTO fund_quote(fund_code,name,nav,nav_date,updated_at)
+               VALUES (:fund_code,:name,:nav,:nav_date,datetime('now','localtime'))
                ON CONFLICT(fund_code) DO UPDATE SET
                  name=COALESCE(excluded.name, fund_quote.name),
-                 nav_date=excluded.nav_date, dwjz=excluded.dwjz,
+                 nav=excluded.nav, nav_date=excluded.nav_date,
                  updated_at=excluded.updated_at""",
             d,
         )

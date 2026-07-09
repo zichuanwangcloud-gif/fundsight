@@ -17,7 +17,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.models.db import get_conn, init_db  # noqa: E402
 from backend.datasource.fundgz import refresh_quotes  # noqa: E402
-from backend.scheduler import maybe_bootstrap_sync, start_periodic_sync  # noqa: E402
+from backend.scheduler import maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh  # noqa: E402
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
 
@@ -49,25 +49,39 @@ def enrich_holding(h, quote):
     item["gsz"] = q["gsz"]
     item["dwjz"] = q["dwjz"]
     item["gztime"] = q["gztime"]
+    nav = q.get("nav")
     # 今日浮动盈亏 = 份额 * (gsz - dwjz)，份额 = 持仓金额 / dwjz
+    shares = None
     if h["hold_amount"] and q["dwjz"] and q["gsz"]:
         shares = h["hold_amount"] / q["dwjz"]
         item["today_pl"] = round(shares * (q["gsz"] - q["dwjz"]), 2)
         item["est_value"] = round(shares * q["gsz"], 2)
+    # 收盘真实盈亏（官方净值 nav）：与估算并存，份额同口径便于对照
+    if nav is not None and h["hold_amount"] and q["dwjz"]:
+        real_shares = h["hold_amount"] / q["dwjz"]
+        item["nav"] = nav
+        item["nav_date"] = q.get("nav_date")
+        item["real_value"] = round(real_shares * nav, 2)
+        item["real_pl"] = round(real_shares * (nav - q["dwjz"]), 2)
     # 距目标: 目标净值 - 当前估值
     if h["target_price"] and q["gsz"]:
         item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
-    # 持仓收益率% = (估算市值 - 成本) / 成本 * 100
+    # 持仓收益率%（估算口径）= (估算市值 - 成本) / 成本 * 100
     if h["cost_amount"] and item.get("est_value") is not None:
         cost_return_rate = (item["est_value"] - h["cost_amount"]) / h["cost_amount"] * 100
         item["cost_return_rate"] = round(cost_return_rate, 2)
-        # 止盈：持仓收益率 达到/超过 止盈线
+        # 真实收益率%（官方净值口径，若有 nav）
+        real_return_rate = None
+        if item.get("real_value") is not None:
+            real_return_rate = (item["real_value"] - h["cost_amount"]) / h["cost_amount"] * 100
+            item["real_return_rate"] = round(real_return_rate, 2)
+        # 止盈止损优先用真实收益率（准），无 nav 时回退估算收益率
+        judge_rate = real_return_rate if real_return_rate is not None else cost_return_rate
         if h["stop_profit"] is not None:
-            item["hit_stop_profit"] = cost_return_rate >= h["stop_profit"]
-        # 止损：持仓收益率 达到/低于 止损线（止损线通常为负数，按数值直接比较）
+            item["hit_stop_profit"] = judge_rate >= h["stop_profit"]
         if h["stop_loss"] is not None:
-            item["hit_stop_loss"] = cost_return_rate <= h["stop_loss"]
-        # 距目标收益率
+            item["hit_stop_loss"] = judge_rate <= h["stop_loss"]
+        # 距目标收益率（沿用估算口径）
         if h["target_rate"] is not None:
             item["gap_to_target_rate"] = round(h["target_rate"] - cost_return_rate, 2)
     return item
@@ -85,6 +99,9 @@ def summarize(items):
     total_cost = 0.0
     matched_est = 0.0
     matched_count = 0
+    total_real_value = 0.0
+    total_real_pl = 0.0
+    real_count = 0
     for it in items:
         if it.get("today_pl") is not None:
             total_today_pl += it["today_pl"]
@@ -94,6 +111,12 @@ def summarize(items):
                 total_cost += it["cost_amount"]
                 matched_est += it["est_value"]
                 matched_count += 1
+        # 真实口径：仅累加有官方净值(real_value)的持仓
+        if it.get("real_value") is not None:
+            total_real_value += it["real_value"]
+            if it.get("real_pl") is not None:
+                total_real_pl += it["real_pl"]
+            real_count += 1
     total_pl = round(matched_est - total_cost, 2) if matched_count else None
     total_return_rate = (
         round((matched_est - total_cost) / total_cost * 100, 2)
@@ -107,6 +130,8 @@ def summarize(items):
         "matched_count": matched_count,
         "total_pl": total_pl,
         "total_return_rate": total_return_rate,
+        "total_real_value": round(total_real_value, 2),
+        "total_real_pl": round(total_real_pl, 2) if real_count else None,
     }
 
 
@@ -240,6 +265,8 @@ def main():
     # 启动即拉全量列表(仅初始种子态时),并起定时刷新;均为后台 daemon,不阻塞。
     maybe_bootstrap_sync()
     start_periodic_sync(interval_days=7)
+    # 收盘官方净值:启动即回填一次,之后每 12h 刷新持仓基金的官方净值。
+    start_nav_refresh(interval_hours=12)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

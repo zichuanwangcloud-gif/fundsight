@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS fund_quote (
     gsz         REAL,   -- 盘中估算净值
     gszzl       REAL,   -- 盘中估算涨跌幅 %
     gztime      TEXT,   -- 估值时间
+    nav         REAL,   -- 最新官方单位净值（收盘回填，与 dwjz/估值分离）
     nav_date    TEXT,   -- 官方净值日期（收盘后回填）
     updated_at  TEXT
 );
@@ -76,9 +77,17 @@ def get_conn():
     return conn
 
 
+def _ensure_columns(conn):
+    """幂等迁移：为已存在的旧库补齐新增列（SQLite 无 ADD COLUMN IF NOT EXISTS）。"""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_quote)")}
+    if "nav" not in cols:
+        conn.execute("ALTER TABLE fund_quote ADD COLUMN nav REAL")
+
+
 def init_db(with_seed=True):
     conn = get_conn()
     conn.executescript(SCHEMA)
+    _ensure_columns(conn)
     if with_seed:
         cur = conn.execute("SELECT COUNT(*) AS n FROM fund_list")
         if cur.fetchone()["n"] == 0:

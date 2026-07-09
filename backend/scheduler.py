@@ -69,3 +69,46 @@ def start_periodic_sync(interval_days=7, sync_fn=None):
     t = threading.Thread(target=_loop, name="periodic-sync", daemon=True)
     t.start()
     return t
+
+
+def _refresh_holdings_nav():
+    """对当前持仓的基金批量回填收盘官方净值。返回成功数。"""
+    from backend.datasource.akshare_nav import refresh_nav
+    conn = get_conn()
+    try:
+        codes = [r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding")]
+        if not codes:
+            return 0
+        return refresh_nav(conn, codes)
+    finally:
+        conn.close()
+
+
+def _safe_nav_refresh(nav_fn):
+    try:
+        n = nav_fn()
+        if n:
+            print(f"[scheduler] 收盘净值回填完成,更新 {n} 只持仓基金。")
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 收盘净值回填失败(不影响服务): {type(e).__name__} {e}")
+
+
+def start_nav_refresh(interval_hours=12, nav_fn=None, run_now=True):
+    """启动收盘官方净值定时回填 daemon 线程,返回该线程。
+
+    run_now=True 时先立即回填一次(启动即补齐历史持仓的官方净值),
+    之后每 interval_hours 刷新一次。全程吞异常,失败仅日志。
+    """
+    nav_fn = nav_fn or _refresh_holdings_nav
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_nav_refresh(nav_fn)
+        while True:
+            time.sleep(interval)
+            _safe_nav_refresh(nav_fn)
+
+    t = threading.Thread(target=_loop, name="nav-refresh", daemon=True)
+    t.start()
+    return t
