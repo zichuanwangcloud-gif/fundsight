@@ -53,6 +53,7 @@
   .card .del { float: right; color: #c0c6d0; cursor: pointer; font-size: 13px; }
   .card .edit { float: right; color: #8a94a6; cursor: pointer; font-size: 13px; margin-left: 14px; }
   .card .gztime { color: #b0b7c3; font-size: 11px; margin-top: 8px; }
+  .card .gztime .stale { color: #e0a020; }
   .badges { margin-top: 8px; display: flex; gap: 8px; }
   .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
   .badge.profit { background: #fdf1d6; color: #a3720a; }
@@ -170,6 +171,14 @@ async function del(id) {
 function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }
 function scls(v) { return v > 0 ? "s-up" : v < 0 ? "s-down" : "s-flat"; }
 function sign(v) { return (v > 0 ? "+" : "") + v; }
+// 估值数据是否偏旧:缓存写入时间距今 > 5 分钟则提示（盘中场景）
+function staleHint(updatedAt) {
+  if (!updatedAt) return "";
+  const t = new Date(updatedAt.replace(/-/g, "/")).getTime();
+  if (isNaN(t)) return "";
+  const mins = (Date.now() - t) / 60000;
+  return mins > 5 ? ` · <span class="stale">数据延迟 ${Math.round(mins)} 分钟</span>` : "";
+}
 
 function renderSummary(s) {
   const box = $("#summary");
@@ -229,7 +238,7 @@ async function load() {
         ${it.gap_to_target!=null?`<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>`:""}
       </div>
       ${badges.length?`<div class="badges">${badges.join("")}</div>`:""}
-      <div class="gztime">${it.gztime?("估值时间 "+it.gztime):""}</div>
+      <div class="gztime">${it.gztime?("估值时间 "+it.gztime):""}${staleHint(it.quote_updated_at)}</div>
     </div>`;
   }).join("");
 }

@@ -16,8 +16,10 @@ from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.models.db import get_conn, init_db  # noqa: E402
-from backend.datasource.fundgz import refresh_quotes  # noqa: E402
-from backend.scheduler import maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh  # noqa: E402
+from backend.scheduler import (  # noqa: E402
+    maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh,
+    start_quote_refresh, trigger_quote_for,
+)
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
 
@@ -49,6 +51,7 @@ def enrich_holding(h, quote):
     item["gsz"] = q["gsz"]
     item["dwjz"] = q["dwjz"]
     item["gztime"] = q["gztime"]
+    item["quote_updated_at"] = q.get("updated_at")  # 缓存写入时间(新鲜度提示用)
     nav = q.get("nav")
     # 今日浮动盈亏 = 份额 * (gsz - dwjz)，份额 = 持仓金额 / dwjz
     shares = None
@@ -136,11 +139,10 @@ def summarize(items):
 
 
 def list_holdings():
+    # 业务层只读缓存：估值由 scheduler 后台定时写入 fund_quote，
+    # 这里绝不触发外部抓取（防封 IP + 扛并发 + 响应快）。
     conn = get_conn()
     holds = [dict(r) for r in conn.execute("SELECT * FROM holding ORDER BY id").fetchall()]
-    codes = [h["fund_code"] for h in holds]
-    if codes:
-        refresh_quotes(conn, codes)  # 刷新估值到缓存
     items = []
     for h in holds:
         q = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (h["fund_code"],)).fetchone()
@@ -166,6 +168,11 @@ def add_holding(data):
     )
     conn.commit()
     conn.close()
+    # 补空窗：新增持仓后后台拉一次该基金估值，用户几秒内即可见，
+    # 无需等 60 秒定时周期（拉取失败由定时任务兜底）。
+    code = data.get("fund_code")
+    if code:
+        trigger_quote_for(code)
 
 
 def delete_holding(hid):
@@ -267,6 +274,8 @@ def main():
     start_periodic_sync(interval_days=7)
     # 收盘官方净值:启动即回填一次,之后每 12h 刷新持仓基金的官方净值。
     start_nav_refresh(interval_hours=12)
+    # 盘中估值:后台每 60 秒刷新持仓估值,业务层只读缓存(不在请求路径现拉)。
+    start_quote_refresh(interval_seconds=60)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

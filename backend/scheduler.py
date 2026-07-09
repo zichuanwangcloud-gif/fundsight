@@ -112,3 +112,71 @@ def start_nav_refresh(interval_hours=12, nav_fn=None, run_now=True):
     t = threading.Thread(target=_loop, name="nav-refresh", daemon=True)
     t.start()
     return t
+
+
+# ---- 盘中估值:后台定时刷新，业务层只读缓存（M6） ----
+
+def _refresh_holdings_quotes():
+    """对当前持仓的基金批量刷新盘中估值。返回成功数。"""
+    from backend.datasource.fundgz import refresh_quotes
+    conn = get_conn()
+    try:
+        codes = [r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding")]
+        if not codes:
+            return 0
+        return refresh_quotes(conn, codes)
+    finally:
+        conn.close()
+
+
+def _refresh_one_quote(code):
+    """刷新单只基金估值（供新增持仓时补空窗）。"""
+    from backend.datasource.fundgz import refresh_quotes
+    conn = get_conn()
+    try:
+        return refresh_quotes(conn, [code])
+    finally:
+        conn.close()
+
+
+def _safe_quote_refresh(quote_fn):
+    try:
+        n = quote_fn()
+        if n:
+            print(f"[scheduler] 盘中估值刷新完成,更新 {n} 只持仓基金。")
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 盘中估值刷新失败(不影响服务): {type(e).__name__} {e}")
+
+
+def start_quote_refresh(interval_seconds=60, quote_fn=None, run_now=True):
+    """启动盘中估值定时刷新 daemon 线程,返回该线程。
+
+    业务层(list_holdings)只读缓存,估值由此后台线程写入,不再在请求路径现拉。
+    """
+    quote_fn = quote_fn or _refresh_holdings_quotes
+
+    def _loop():
+        if run_now:
+            _safe_quote_refresh(quote_fn)
+        while True:
+            time.sleep(interval_seconds)
+            _safe_quote_refresh(quote_fn)
+
+    t = threading.Thread(target=_loop, name="quote-refresh", daemon=True)
+    t.start()
+    return t
+
+
+def trigger_quote_for(code, one_fn=None):
+    """后台拉取单只基金估值(不阻塞调用方),供新增持仓补空窗。返回线程。"""
+    one_fn = one_fn or _refresh_one_quote
+
+    def _run():
+        try:
+            one_fn(code)
+        except Exception as e:  # noqa: BLE001
+            print(f"[scheduler] 新增持仓估值拉取失败 {code}: {type(e).__name__} {e}")
+
+    t = threading.Thread(target=_run, name=f"quote-one-{code}", daemon=True)
+    t.start()
+    return t
