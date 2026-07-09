@@ -56,6 +56,20 @@ CREATE TABLE IF NOT EXISTS fund_nav_history (
     PRIMARY KEY (fund_code, nav_date)
 );
 
+-- 基金基本面：详情页用（经理/规模/近期收益率/费率），抓取层低频写入，业务层只读（M8-B）
+CREATE TABLE IF NOT EXISTS fund_profile (
+    fund_code  TEXT PRIMARY KEY,
+    name       TEXT,   -- 基金全称（fS_name）
+    manager    TEXT,   -- 现任基金经理
+    scale      REAL,   -- 最新规模（亿元）
+    rate       TEXT,   -- 管理费率（原样保留字符串，如 "1.50%"）
+    syl_1n     REAL,   -- pingzhongdata 原字段：近1年收益率 %
+    syl_3y     REAL,   -- pingzhongdata 原字段：近3年收益率 %
+    syl_6y     REAL,   -- pingzhongdata 原字段：成立以来收益率 %
+    syl_1y     REAL,   -- pingzhongdata 原字段：近1月收益率 %
+    updated_at TEXT
+);
+
 -- 用户体系：账号 + 会话。密码用 pbkdf2 加盐哈希（见 backend/auth.py），零第三方依赖。
 CREATE TABLE IF NOT EXISTS user (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +91,21 @@ CREATE INDEX IF NOT EXISTS idx_fund_list_name ON fund_list(name);
 CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);
 -- 自选按用户隔离，加索引加速 WHERE user_id=? 过滤
 CREATE INDEX IF NOT EXISTS idx_holding_user ON holding(user_id);
+
+-- 交易流水：买卖记录，持仓由 compute_position() 对流水加权推导，不单独存持仓表
+CREATE TABLE IF NOT EXISTS fund_transaction (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER DEFAULT 0,
+    fund_code   TEXT NOT NULL,
+    action      TEXT,    -- buy | sell
+    shares      REAL,
+    price       REAL,
+    amount      REAL,
+    trade_date  TEXT,
+    created_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fund_transaction_user_code
+    ON fund_transaction(user_id, fund_code);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
@@ -112,6 +141,11 @@ def _ensure_columns(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_quote)")}
     if "nav" not in cols:
         conn.execute("ALTER TABLE fund_quote ADD COLUMN nav REAL")
+
+    # fund_nav_history 加列：equity_return（当日涨跌幅 %，涨跌柱用）——M8-B
+    hist_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_nav_history)")}
+    if "equity_return" not in hist_cols:
+        conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return REAL")
 
 
 def init_db(with_seed=True):
