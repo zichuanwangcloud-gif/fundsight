@@ -245,3 +245,60 @@ def trigger_history_for(code, one_fn=None):
     t = threading.Thread(target=_run, name=f"history-one-{code}", daemon=True)
     t.start()
     return t
+
+
+# ---- 基金基本面:后台日更，详情页用（M8-B） ----
+
+def _profile_target_codes(conn):
+    """日更目标 = 当前持仓基金 ∪ 已被查过详情(fund_profile 已有记录)的基金。
+
+    「被查基金」以 fund_profile 是否已有记录为准 —— 详情页首次访问会低频
+    按需抓取入库(见 backend/api/fund_detail.py::_ensure_cached),之后即
+    进入这里的日更范围,无需额外记录「浏览历史」表。
+    """
+    holding_codes = {r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding")}
+    profile_codes = {r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM fund_profile")}
+    return sorted(holding_codes | profile_codes)
+
+
+def _refresh_tracked_profiles():
+    """对持仓/被查基金批量刷新基本面(profile)。返回成功数。"""
+    from backend.datasource.fund_profile import refresh_profile
+    conn = get_conn()
+    try:
+        codes = _profile_target_codes(conn)
+        if not codes:
+            return 0
+        return refresh_profile(conn, codes)
+    finally:
+        conn.close()
+
+
+def _safe_profile_refresh(profile_fn):
+    try:
+        n = profile_fn()
+        if n:
+            print(f"[scheduler] 基本面刷新完成,更新 {n} 只基金。")
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 基本面刷新失败(不影响服务): {type(e).__name__} {e}")
+
+
+def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):
+    """启动基金基本面定时刷新 daemon 线程(日更),返回该线程。
+
+    与 start_history_refresh 同构,但 run_now 默认 False —— 基本面数据变化
+    比净值更慢,启动即拉非必要;首次访问由 fund_detail.py 的按需抓取兜底。
+    """
+    profile_fn = profile_fn or _refresh_tracked_profiles
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_profile_refresh(profile_fn)
+        while True:
+            time.sleep(interval)
+            _safe_profile_refresh(profile_fn)
+
+    t = threading.Thread(target=_loop, name="profile-refresh", daemon=True)
+    t.start()
+    return t
