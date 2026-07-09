@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS holding (
     stop_loss     REAL,   -- 止损线 %
     created_at    TEXT
 );
+
+-- 搜索索引：全量同步后 fund_list 达 2.7 万行，为名称/拼音匹配与排序兜底
+CREATE INDEX IF NOT EXISTS idx_fund_list_name ON fund_list(name);
+CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖

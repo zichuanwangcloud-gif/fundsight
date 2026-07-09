@@ -17,6 +17,7 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.models.db import get_conn, init_db  # noqa: E402
 from backend.datasource.fundgz import refresh_quotes  # noqa: E402
+from backend.scheduler import maybe_bootstrap_sync, start_periodic_sync  # noqa: E402
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
 
@@ -236,6 +237,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     init_db()
+    # 启动即拉全量列表(仅初始种子态时),并起定时刷新;均为后台 daemon,不阻塞。
+    maybe_bootstrap_sync()
+    start_periodic_sync(interval_days=7)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

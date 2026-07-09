@@ -1,0 +1,19 @@
+# 版本控制与本地产物
+.git
+.gitignore
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 运行期数据(容器内用卷挂载,不进镜像)
+data/
+
+# 开发期文件,运行时用不到
+tests/
+docs/
+*.md
+.claude/
+.idea/
+.vscode/
+.DS_Store
