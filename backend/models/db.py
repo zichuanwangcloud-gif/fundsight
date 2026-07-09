@@ -77,6 +77,21 @@ CREATE INDEX IF NOT EXISTS idx_fund_list_name ON fund_list(name);
 CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);
 -- 自选按用户隔离，加索引加速 WHERE user_id=? 过滤
 CREATE INDEX IF NOT EXISTS idx_holding_user ON holding(user_id);
+
+-- 交易流水：买卖记录，持仓由 compute_position() 对流水加权推导，不单独存持仓表
+CREATE TABLE IF NOT EXISTS fund_transaction (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER DEFAULT 0,
+    fund_code   TEXT NOT NULL,
+    action      TEXT,    -- buy | sell
+    shares      REAL,
+    price       REAL,
+    amount      REAL,
+    trade_date  TEXT,
+    created_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fund_transaction_user_code
+    ON fund_transaction(user_id, fund_code);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
