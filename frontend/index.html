@@ -68,9 +68,54 @@
   dialog .btns { margin-top: 18px; display: flex; gap: 10px; }
   dialog button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
   .primary { background: #3b7cff; color: #fff; } .ghost { background: #eef1f6; color: #55607a; }
+  /* 登录/注册门控 */
+  #auth { position: fixed; inset: 0; background: #f4f6f9; display: none;
+          align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+  #auth .box { background: #fff; border-radius: 14px; padding: 28px 24px; width: 340px;
+               box-shadow: 0 12px 40px rgba(0,0,0,.1); }
+  #auth h2 { font-size: 20px; margin-bottom: 4px; }
+  #auth .en { color: #8a94a6; font-size: 13px; font-weight: normal; }
+  #auth .tip { color: #8a94a6; font-size: 13px; margin: 6px 0 18px; }
+  #auth label { display: block; font-size: 13px; color: #55607a; margin: 12px 0 4px; }
+  #auth input { width: 100%; padding: 10px 12px; border: 1px solid #d6dbe4;
+                border-radius: 8px; font-size: 14px; }
+  #auth input:focus { border-color: #3b7cff; outline: none; }
+  #auth .err { color: #e0483d; font-size: 13px; min-height: 18px; margin-top: 10px; }
+  #auth button.primary { width: 100%; margin-top: 16px; padding: 11px; border: none;
+                         border-radius: 8px; font-size: 15px; cursor: pointer; }
+  #auth .switch { text-align: center; margin-top: 14px; font-size: 13px; color: #55607a; }
+  #auth .switch a { color: #3b7cff; cursor: pointer; }
+  .userbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+             font-size: 13px; color: #8a94a6; margin-bottom: 10px; }
+  .userbar b { color: #1f2733; }
+  .userbar button { background: #eef1f6; color: #55607a; border: none; border-radius: 8px;
+                    padding: 5px 12px; font-size: 12px; cursor: pointer; }
+
 </style>
 </head>
 <body>
+  <div id="auth">
+    <div class="box">
+      <h2>盈见 <span class="en">FundSight</span></h2>
+      <div class="tip" id="auth-tip">登录后你的自选一直为你保留</div>
+      <label>用户名</label>
+      <input id="a-user" autocomplete="username" placeholder="用户名">
+      <label>密码</label>
+      <input id="a-pass" type="password" autocomplete="current-password" placeholder="密码">
+      <div class="err" id="auth-err"></div>
+      <button class="primary" id="auth-submit" onclick="submitAuth()">登录</button>
+      <div class="switch">
+        <span id="auth-switch-text">还没有账号？</span>
+        <a id="auth-switch" onclick="toggleAuthMode()">注册</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="userbar" id="userbar" style="display:none">
+    <span>当前用户 <b id="me-name"></b></span>
+    <button onclick="logout()">退出</button>
+  </div>
+
   <h1>盈见 <span class="en">FundSight</span></h1>
   <div class="sub">预见收益 · 搜索基金 → 加自选 → 看涨幅与盈亏</div>
 
@@ -108,13 +153,60 @@ const $ = s => document.querySelector(s);
 const q = $("#q"), results = $("#results"), dlg = $("#dlg");
 let timer = null;
 let editingId = null;   // null=新增，非空=编辑该持仓 id
+let authMode = "login"; // login | register
+
+// ---- 登录 / 注册门控 ----
+function showAuth() {
+  $("#userbar").style.display = "none";
+  $("#auth").style.display = "flex";
+  $("#auth-err").textContent = "";
+  $("#a-pass").value = "";
+}
+function hideAuth(username) {
+  $("#auth").style.display = "none";
+  $("#userbar").style.display = "flex";
+  $("#me-name").textContent = username;
+}
+function toggleAuthMode() {
+  authMode = authMode === "login" ? "register" : "login";
+  const login = authMode === "login";
+  $("#auth-submit").textContent = login ? "登录" : "注册";
+  $("#auth-switch-text").textContent = login ? "还没有账号？" : "已有账号？";
+  $("#auth-switch").textContent = login ? "注册" : "登录";
+  $("#a-pass").setAttribute("autocomplete", login ? "current-password" : "new-password");
+  $("#auth-err").textContent = "";
+}
+async function submitAuth() {
+  const username = $("#a-user").value.trim();
+  const password = $("#a-pass").value;
+  if (!username || !password) { $("#auth-err").textContent = "请输入用户名和密码"; return; }
+  const url = authMode === "login" ? "/api/login" : "/api/register";
+  const r = await fetch(url, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    credentials: "same-origin", body: JSON.stringify({username, password}),
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    $("#auth-err").textContent = d.error || "操作失败";
+    return;
+  }
+  const d = await r.json();
+  hideAuth(d.username);
+  load();
+}
+async function logout() {
+  await fetch("/api/logout", {method: "POST", credentials: "same-origin"});
+  showAuth();
+}
+$("#a-pass") && $("#a-pass").addEventListener("keydown", e => { if (e.key === "Enter") submitAuth(); });
 
 q.addEventListener("input", () => {
   clearTimeout(timer);
   const v = q.value.trim();
   if (!v) { results.style.display = "none"; return; }
   timer = setTimeout(async () => {
-    const r = await fetch("/api/search?q=" + encodeURIComponent(v));
+    const r = await fetch("/api/search?q=" + encodeURIComponent(v), {credentials: "same-origin"});
+    if (r.status === 401) return showAuth();
     const funds = await r.json();
     results.innerHTML = funds.map(f =>
       `<div onclick='openDlg(${JSON.stringify(f).replace(/'/g,"&#39;")})'>
@@ -161,13 +253,17 @@ async function submitHolding() {
   });
   const url = editingId ? "/api/holdings/" + editingId : "/api/holdings";
   const method = editingId ? "PUT" : "POST";
-  await fetch(url, { method, headers: {"Content-Type":"application/json"}, body });
+  const r = await fetch(url, { method, headers: {"Content-Type":"application/json"},
+                              credentials: "same-origin", body });
+  if (r.status === 401) { dlg.close(); return showAuth(); }
   editingId = null;
   dlg.close(); load();
 }
 async function del(id) {
   if (!confirm("移除这只自选？")) return;
-  await fetch("/api/holdings/" + id, { method: "DELETE" }); load();
+  const r = await fetch("/api/holdings/" + id, { method: "DELETE", credentials: "same-origin" });
+  if (r.status === 401) return showAuth();
+  load();
 }
 
 function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }
@@ -207,7 +303,8 @@ function renderSummary(s) {
 }
 
 async function load() {
-  const r = await fetch("/api/holdings");
+  const r = await fetch("/api/holdings", {credentials: "same-origin"});
+  if (r.status === 401) return showAuth();
   const data = await r.json();
   const items = data.items || [];
   renderSummary(data.summary);
@@ -283,7 +380,14 @@ async function loadSparklines(items) {
     } catch { box.style.display = "none"; }
   }));
 }
-load();
+// 启动：先探测登录态，未登录显示门控，已登录直接加载
+(async function init() {
+  const r = await fetch("/api/me", {credentials: "same-origin"});
+  if (r.status === 401) return showAuth();
+  const d = await r.json();
+  hideAuth(d.username);
+  load();
+})();
 </script>
 </body>
 </html>
