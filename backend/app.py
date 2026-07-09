@@ -19,6 +19,7 @@ from backend.models.db import get_conn, init_db  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh,
     start_quote_refresh, trigger_quote_for,
+    start_history_refresh, trigger_history_for,
 )
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
@@ -34,6 +35,23 @@ def search_funds(q):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def nav_history(code, days=90):
+    """读 fund_nav_history 缓存,返回最近 days 天的净值序列(升序)。
+
+    纯读缓存,不触发外部抓取(延续 M6 业务层只读原则)。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT nav_date, nav FROM fund_nav_history WHERE fund_code=? "
+        "ORDER BY nav_date DESC LIMIT ?",
+        (code, days),
+    ).fetchall()
+    conn.close()
+    # 取最近 days 天后翻回升序,便于前端从左到右画图
+    points = [{"d": r["nav_date"], "v": r["nav"]} for r in reversed(rows)]
+    return {"code": code, "points": points}
 
 
 def enrich_holding(h, quote):
@@ -173,6 +191,7 @@ def add_holding(data):
     code = data.get("fund_code")
     if code:
         trigger_quote_for(code)
+        trigger_history_for(code)  # 顺带拉历史序列,新持仓卡片几秒内有走势图
 
 
 def delete_holding(hid):
@@ -226,6 +245,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(search_funds(q) if q else [])
         if u.path == "/api/holdings":
             return self._json(list_holdings())
+        if u.path == "/api/nav_history":
+            qs = parse_qs(u.query)
+            code = (qs.get("code") or [""])[0].strip()
+            try:
+                days = int((qs.get("days") or ["90"])[0])
+            except ValueError:
+                days = 90
+            return self._json(nav_history(code, days) if code else {"code": "", "points": []})
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -276,6 +303,8 @@ def main():
     start_nav_refresh(interval_hours=12)
     # 盘中估值:后台每 60 秒刷新持仓估值,业务层只读缓存(不在请求路径现拉)。
     start_quote_refresh(interval_seconds=60)
+    # 历史净值序列:后台日更持仓基金的走势数据(走势图用)。
+    start_history_refresh(interval_hours=24)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

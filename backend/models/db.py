@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS holding (
     created_at    TEXT
 );
 
+-- 历史净值序列：走势图用，抓取层日更写入，业务层只读
+CREATE TABLE IF NOT EXISTS fund_nav_history (
+    fund_code  TEXT NOT NULL,
+    nav_date   TEXT NOT NULL,   -- YYYY-MM-DD
+    nav        REAL,            -- 单位净值
+    PRIMARY KEY (fund_code, nav_date)
+);
+
 -- 搜索索引：全量同步后 fund_list 达 2.7 万行，为名称/拼音匹配与排序兜底
 CREATE INDEX IF NOT EXISTS idx_fund_list_name ON fund_list(name);
 CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);

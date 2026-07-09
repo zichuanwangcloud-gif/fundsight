@@ -54,6 +54,8 @@
   .card .edit { float: right; color: #8a94a6; cursor: pointer; font-size: 13px; margin-left: 14px; }
   .card .gztime { color: #b0b7c3; font-size: 11px; margin-top: 8px; }
   .card .gztime .stale { color: #e0a020; }
+  .card .spark { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .card .spark .spark-lbl { font-size: 11px; font-weight: 600; }
   .badges { margin-top: 8px; display: flex; gap: 8px; }
   .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
   .badge.profit { background: #fdf1d6; color: #a3720a; }
@@ -237,10 +239,49 @@ async function load() {
         ${it.real_return_rate!=null?`<div>真实收益率<b class="${cls(it.real_return_rate)}">${sign(it.real_return_rate)}%</b></div>`:""}
         ${it.gap_to_target!=null?`<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>`:""}
       </div>
+      <div class="spark" data-code="${it.fund_code}"></div>
       ${badges.length?`<div class="badges">${badges.join("")}</div>`:""}
       <div class="gztime">${it.gztime?("估值时间 "+it.gztime):""}${staleHint(it.quote_updated_at)}</div>
     </div>`;
   }).join("");
+  loadSparklines(items);
+}
+
+// 把净值序列画成迷你 SVG 折线(零依赖)。points: [{d,v}]
+function sparkline(points) {
+  if (!points || points.length < 2) return "";
+  const W = 130, H = 34, pad = 2;
+  const vs = points.map(p => p.v);
+  const min = Math.min(...vs), max = Math.max(...vs);
+  const span = max - min || 1;
+  const n = points.length;
+  const xy = points.map((p, i) => {
+    const x = pad + (W - 2 * pad) * i / (n - 1);
+    const y = pad + (H - 2 * pad) * (1 - (p.v - min) / span);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  // 区间涨跌决定颜色:末点 vs 首点
+  const up = points[n - 1].v >= points[0].v;
+  const color = up ? "#e0483d" : "#16a34a";
+  const pct = (((points[n - 1].v - points[0].v) / points[0].v) * 100).toFixed(1);
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+      <polyline fill="none" stroke="${color}" stroke-width="1.5"
+                points="${xy.join(" ")}" stroke-linejoin="round"/>
+    </svg><span class="spark-lbl" style="color:${color}">近${n}日 ${up?"+":""}${pct}%</span>`;
+}
+
+// 逐只持仓异步取历史序列并渲染(持仓数通常个位数,并发可控)
+async function loadSparklines(items) {
+  await Promise.all(items.map(async it => {
+    const box = document.querySelector(`.spark[data-code="${it.fund_code}"]`);
+    if (!box) return;
+    try {
+      const r = await fetch("/api/nav_history?code=" + encodeURIComponent(it.fund_code) + "&days=90");
+      const d = await r.json();
+      const svg = sparkline(d.points);
+      if (svg) box.innerHTML = svg; else box.style.display = "none";
+    } catch { box.style.display = "none"; }
+  }));
 }
 load();
 </script>
