@@ -29,10 +29,20 @@ from backend.scheduler import (  # noqa: E402
     start_history_refresh, trigger_history_for,
 )
 from backend import auth  # noqa: E402
+from backend.api import ALL_ROUTES  # noqa: E402
+from backend.api._router import dispatch  # noqa: E402
 
 SESSION_COOKIE = "fs_session"
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
+FRONTEND_DIR = os.path.dirname(FRONTEND)
+
+# 静态资源白名单:扩展名 → Content-Type
+_STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+}
 
 
 def search_funds(q):
@@ -294,8 +304,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if u.path == "/" or u.path == "/index.html":
-            return self._serve_html()
+        if not u.path.startswith("/api/"):
+            return self._serve_static(u.path)
         if u.path == "/api/me":
             uid = self._require_auth()
             if uid is None:
@@ -321,6 +331,8 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 days = 90
             return self._json(nav_history(code, days) if code else {"code": "", "points": []})
+        if self._try_api_routes("GET"):
+            return
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
@@ -337,6 +349,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             add_holding(self._read_json(), uid)
             return self._json({"ok": True})
+        if self._try_api_routes("POST"):
+            return
         self._json({"error": "not found"}, 404)
 
     def do_PUT(self):
@@ -348,6 +362,8 @@ class Handler(BaseHTTPRequestHandler):
             hid = p.rsplit("/", 1)[-1]
             update_holding(hid, self._read_json(), uid)
             return self._json({"ok": True})
+        if self._try_api_routes("PUT"):
+            return
         self._json({"error": "not found"}, 404)
 
     def do_DELETE(self):
@@ -359,7 +375,24 @@ class Handler(BaseHTTPRequestHandler):
             hid = p.rsplit("/", 1)[-1]
             delete_holding(hid, uid)
             return self._json({"ok": True})
+        if self._try_api_routes("DELETE"):
+            return
         self._json({"error": "not found"}, 404)
+
+    def _try_api_routes(self, method):
+        """尝试用扩展路由表(ALL_ROUTES)处理请求。命中并写响应返回 True。
+
+        供后续线路(市场/详情/流水)注册的新端点用;当前登录用户注入 ctx.user_id,
+        需要鉴权的 handler 自行判断。
+        """
+        u = urlparse(self.path)
+        body = self._read_json() if method in ("POST", "PUT") else {}
+        result = dispatch(ALL_ROUTES, method, u.path, parse_qs(u.query), body, self._current_user())
+        if result is None:
+            return False
+        code, obj = result
+        self._json(obj, code)
+        return True
 
     # ---- 账号端点 ----
     def _handle_register(self):
@@ -390,11 +423,19 @@ class Handler(BaseHTTPRequestHandler):
         auth.delete_session(self._session_token())
         self._json({"ok": True}, extra_headers=[self._clear_cookie_header()])
 
-    def _serve_html(self):
-        with open(FRONTEND, "rb") as f:
+    def _serve_static(self, path):
+        # "/" → index.html;其余按 basename 在 frontend/ 下找,白名单扩展防穿越
+        rel = "index.html" if path in ("/", "/index.html") else os.path.basename(path)
+        ext = os.path.splitext(rel)[1]
+        if ext not in _STATIC_TYPES:
+            return self._json({"error": "not found"}, 404)
+        fpath = os.path.join(FRONTEND_DIR, rel)
+        if not os.path.isfile(fpath):
+            return self._json({"error": "not found"}, 404)
+        with open(fpath, "rb") as f:
             body = f.read()
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", _STATIC_TYPES[ext])
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
