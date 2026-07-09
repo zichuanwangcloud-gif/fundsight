@@ -47,6 +47,9 @@
   .up { color: #e0483d; } .down { color: #16a34a; } .flat { color: #8a94a6; }
   .card .metrics { display: flex; gap: 24px; margin-top: 10px; font-size: 13px; color: #55607a; }
   .card .metrics b { display: block; font-size: 15px; color: #1f2733; margin-top: 2px; }
+  .card .metrics .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 5px;
+        margin-left: 4px; border-radius: 4px; background: #eef1f6; color: #8a94a6; vertical-align: middle; }
+  .card .metrics .tag.nav { background: #e6f0ff; color: #3b7cff; }
   .card .del { float: right; color: #c0c6d0; cursor: pointer; font-size: 13px; }
   .card .edit { float: right; color: #8a94a6; cursor: pointer; font-size: 13px; margin-left: 14px; }
   .card .gztime { color: #b0b7c3; font-size: 11px; margin-top: 8px; }
@@ -186,6 +189,7 @@ function renderSummary(s) {
       <div>今日盈亏<b class="${scls(pl)}">${sign(pl)}</b></div>
       ${tot!=null?`<div>累计盈亏<b class="${scls(tot)}">${sign(tot)}</b></div>`:""}
       ${rate!=null?`<div>总收益率<b class="${scls(rate)}">${sign(rate)}%</b></div>`:""}
+      ${s.total_real_pl!=null?`<div>收盘真实盈亏<b class="${scls(s.total_real_pl)}">${sign(s.total_real_pl)}</b></div>`:""}
     </div>
     ${tot!=null&&s.matched_count<s.count?`<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>`:""}`;
   box.style.display = "block";
@@ -217,9 +221,11 @@ async function load() {
       </div>
       <div class="metrics">
         ${it.hold_amount!=null?`<div>持仓金额<b>${it.hold_amount}</b></div>`:""}
-        ${pl!=null?`<div>今日盈亏<b class="${cls(pl)}">${sign(pl)}</b></div>`:""}
+        ${pl!=null?`<div>今日盈亏<span class="tag">估算</span><b class="${cls(pl)}">${sign(pl)}</b></div>`:""}
         ${it.est_value!=null?`<div>估算市值<b>${it.est_value}</b></div>`:""}
-        ${cr!=null?`<div>持仓收益率<b class="${cls(cr)}">${sign(cr)}%</b></div>`:""}
+        ${cr!=null?`<div>持仓收益率<span class="tag">估算</span><b class="${cls(cr)}">${sign(cr)}%</b></div>`:""}
+        ${it.real_pl!=null?`<div>收盘真实盈亏<span class="tag nav">${it.nav_date||"官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>`:""}
+        ${it.real_return_rate!=null?`<div>真实收益率<b class="${cls(it.real_return_rate)}">${sign(it.real_return_rate)}%</b></div>`:""}
         ${it.gap_to_target!=null?`<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>`:""}
       </div>
       ${badges.length?`<div class="badges">${badges.join("")}</div>`:""}

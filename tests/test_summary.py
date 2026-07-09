@@ -29,7 +29,7 @@ class TestEnrichHolding(unittest.TestCase):
         base = {
             "fund_code": "020608", "name": "南方中证机器人ETF发起联接C",
             "dwjz": 1.0000, "gsz": 1.0500, "gszzl": 5.0,
-            "gztime": "2026-07-09 11:30", "nav_date": None,
+            "gztime": "2026-07-09 11:30", "nav": None, "nav_date": None,
             "updated_at": "2026-07-09 11:30",
         }
         base.update(kw)
@@ -79,6 +79,55 @@ class TestEnrichHolding(unittest.TestCase):
         self.assertNotIn("today_pl", item)
         self.assertNotIn("est_value", item)
 
+    def test_real_pl_from_nav(self):
+        # 有官方净值 nav：算出真实盈亏,与估算并存
+        # dwjz=1.0 nav=1.03 gsz=1.05 hold=10000 → shares=10000
+        # real_value=10300, real_pl=300; est_value=10500, today_pl=500
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(nav=1.03, nav_date="2026-07-08"))
+
+        # 估算口径仍在
+        self.assertEqual(item["est_value"], 10500.0)
+        self.assertEqual(item["today_pl"], 500.0)
+        # 真实口径新增
+        self.assertEqual(item["nav"], 1.03)
+        self.assertEqual(item["nav_date"], "2026-07-08")
+        self.assertEqual(item["real_value"], 10300.0)
+        self.assertEqual(item["real_pl"], 300.0)
+        self.assertEqual(item["real_return_rate"], round((10300.0 - 8500.0) / 8500.0 * 100, 2))
+
+    def test_no_nav_no_real_fields(self):
+        # 无 nav：不产生真实字段,优雅降级
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(nav=None))
+
+        self.assertIn("est_value", item)
+        self.assertNotIn("real_value", item)
+        self.assertNotIn("real_pl", item)
+        self.assertNotIn("real_return_rate", item)
+
+    def test_stop_profit_uses_real_rate_when_nav_present(self):
+        # 止盈改用真实收益率:估算收益率 23.53% 触发,但真实收益率仅 3%
+        # nav=1.0 → real_value=cost 附近,real_return_rate≈2.94% < 止盈线5% → 不触发
+        # dwjz=1.0 hold=10000 cost=8500 nav=1.0 → real_value=10000
+        # real_return_rate=(10000-8500)/8500*100=17.65 —— 仍>5,换更贴近的数
+        # 用 nav=0.90: real_value=9000, real_return_rate=(9000-8500)/8500*100=5.88>5 触发
+        # 反例:nav=0.85: real_value=8500, rate=0 <5 不触发,而估算 est 10500 rate=23.53>5
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0, stop_profit=5.0)
+        item = enrich_holding(h, self._quote(nav=0.85, nav_date="2026-07-08"))
+
+        # 估算口径收益率高(23.53%)但真实口径为 0% → 应以真实口径判定,不触发止盈
+        self.assertEqual(item["cost_return_rate"], 23.53)
+        self.assertEqual(item["real_return_rate"], 0.0)
+        self.assertFalse(item["hit_stop_profit"])
+
+    def test_stop_profit_triggers_on_real_rate(self):
+        # 真实收益率达标 → 触发止盈
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0, stop_profit=5.0)
+        item = enrich_holding(h, self._quote(nav=0.90, nav_date="2026-07-08"))
+        # real_value=9000, real_return_rate=5.88 ≥ 5 → 触发
+        self.assertTrue(item["hit_stop_profit"])
+
 
 class TestSummarize(unittest.TestCase):
     """summarize 直接喂富集项 dict，独立于 enrich_holding。"""
@@ -92,6 +141,9 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(s["matched_count"], 0)
         self.assertIsNone(s["total_pl"])
         self.assertIsNone(s["total_return_rate"])
+        # 真实口径:空组合归零/None
+        self.assertEqual(s["total_real_value"], 0)
+        self.assertIsNone(s["total_real_pl"])
 
     def test_two_holdings(self):
         items = [
@@ -133,6 +185,27 @@ class TestSummarize(unittest.TestCase):
         self.assertEqual(s["total_today_pl"], 500.0)
         self.assertEqual(s["total_est_value"], 10500.0)
         self.assertEqual(s["matched_count"], 1)
+
+    def test_real_totals(self):
+        # 两笔有 nav 真实市值/盈亏,第三笔无 nav 不计入真实汇总
+        items = [
+            {"est_value": 10500.0, "cost_amount": 8500.0, "today_pl": 500.0,
+             "real_value": 10300.0, "real_pl": 300.0},
+            {"est_value": 4900.0, "cost_amount": 5200.0, "today_pl": -100.0,
+             "real_value": 4800.0, "real_pl": -200.0},
+            {"est_value": 3000.0, "cost_amount": None, "today_pl": 50.0},  # 无 real_*
+        ]
+        s = summarize(items)
+        self.assertEqual(s["total_real_value"], 15100.0)   # 10300+4800
+        self.assertEqual(s["total_real_pl"], 100.0)         # 300-200
+
+    def test_real_totals_none_when_no_nav(self):
+        items = [
+            {"est_value": 10500.0, "cost_amount": 8500.0, "today_pl": 500.0},
+        ]
+        s = summarize(items)
+        self.assertEqual(s["total_real_value"], 0)
+        self.assertIsNone(s["total_real_pl"])
 
 
 if __name__ == "__main__":
