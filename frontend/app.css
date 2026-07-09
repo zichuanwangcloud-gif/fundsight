@@ -1,0 +1,96 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+       background: #f4f6f9; color: #1f2733; padding: 24px; max-width: 760px; margin: 0 auto; }
+h1 { font-size: 22px; margin-bottom: 4px; }
+h1 .en { color: #8a94a6; font-size: 14px; font-weight: normal; }
+.sub { color: #8a94a6; font-size: 13px; margin-bottom: 16px; }
+
+/* 顶部主导航 Tab(市场 / 我的持仓) */
+.tabs { display: flex; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid #e2e6ee; }
+.tabs .tab { padding: 9px 16px; font-size: 15px; color: #8a94a6; cursor: pointer;
+             border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs .tab:hover { color: #3b7cff; }
+.tabs .tab.active { color: #1f2733; font-weight: 600; border-bottom-color: #3b7cff; }
+#view { min-height: 200px; }
+.placeholder { text-align: center; color: #a0a8b8; padding: 60px 0; }
+
+.search-box { position: relative; margin-bottom: 20px; }
+#q { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #d6dbe4;
+     border-radius: 10px; outline: none; }
+#q:focus { border-color: #3b7cff; }
+#results { position: absolute; top: 48px; left: 0; right: 0; background: #fff;
+           border: 1px solid #e2e6ee; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.08);
+           z-index: 10; max-height: 320px; overflow-y: auto; display: none; }
+#results div { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #f0f2f6; }
+#results div:hover { background: #f4f8ff; }
+#results .code { color: #8a94a6; font-size: 12px; margin-left: 6px; }
+#results .type { float: right; color: #b0b7c3; font-size: 12px; }
+.card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.05); border: 2px solid transparent; }
+.summary { background: linear-gradient(135deg, #2b3a5c, #3b7cff); color: #fff;
+           border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; display: none; }
+.summary .s-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.summary .s-title { font-size: 14px; font-weight: 600; opacity: .95; }
+.summary .s-refresh { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.summary .s-refresh button { background: rgba(255,255,255,.18); color: #fff; border: none;
+           border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.summary .s-refresh button:hover { background: rgba(255,255,255,.3); }
+.summary .s-refresh .s-time { opacity: .75; }
+.summary .s-grid { display: flex; gap: 26px; flex-wrap: wrap; }
+.summary .s-grid > div { font-size: 12px; opacity: .85; }
+.summary .s-grid b { display: block; font-size: 19px; font-weight: 700; opacity: 1; margin-top: 3px; }
+.summary .s-up { color: #ffd0cc; } .summary .s-down { color: #b9f6c8; } .summary .s-flat { color: #fff; }
+.summary .s-note { margin-top: 10px; font-size: 11px; opacity: .7; }
+.card.hit-profit { border-color: #f0b429; box-shadow: 0 0 0 2px rgba(240,180,41,.25), 0 1px 3px rgba(0,0,0,.05); }
+.card.hit-loss { border-color: #e0483d; box-shadow: 0 0 0 2px rgba(224,72,61,.2), 0 1px 3px rgba(0,0,0,.05); }
+.card .top { display: flex; justify-content: space-between; align-items: baseline; }
+.card .fname { font-size: 15px; font-weight: 600; }
+.card .fcode { color: #8a94a6; font-size: 12px; }
+.card .zdf { font-size: 20px; font-weight: 700; }
+.up { color: #e0483d; } .down { color: #16a34a; } .flat { color: #8a94a6; }
+.card .metrics { display: flex; gap: 24px; margin-top: 10px; font-size: 13px; color: #55607a; }
+.card .metrics b { display: block; font-size: 15px; color: #1f2733; margin-top: 2px; }
+.card .metrics .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 5px;
+      margin-left: 4px; border-radius: 4px; background: #eef1f6; color: #8a94a6; vertical-align: middle; }
+.card .metrics .tag.nav { background: #e6f0ff; color: #3b7cff; }
+.card .del { float: right; color: #c0c6d0; cursor: pointer; font-size: 13px; }
+.card .edit { float: right; color: #8a94a6; cursor: pointer; font-size: 13px; margin-left: 14px; }
+.card .gztime { color: #b0b7c3; font-size: 11px; margin-top: 8px; }
+.card .gztime .stale { color: #e0a020; }
+.card .spark { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+.card .spark .spark-lbl { font-size: 11px; font-weight: 600; }
+.badges { margin-top: 8px; display: flex; gap: 8px; }
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.badge.profit { background: #fdf1d6; color: #a3720a; }
+.badge.loss { background: #fde3e1; color: #b8342a; }
+.empty { text-align: center; color: #a0a8b8; padding: 40px 0; }
+dialog { border: none; border-radius: 14px; padding: 22px; width: 320px; box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+dialog h3 { margin-bottom: 14px; font-size: 16px; }
+dialog label { display: block; font-size: 13px; color: #55607a; margin: 10px 0 4px; }
+dialog input { width: 100%; padding: 8px 10px; border: 1px solid #d6dbe4; border-radius: 8px; font-size: 14px; }
+dialog .btns { margin-top: 18px; display: flex; gap: 10px; }
+dialog button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; }
+.primary { background: #3b7cff; color: #fff; } .ghost { background: #eef1f6; color: #55607a; }
+
+/* 登录/注册门控(整合自用户体系) */
+#auth { position: fixed; inset: 0; background: #f4f6f9; display: none;
+        align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+#auth .box { background: #fff; border-radius: 14px; padding: 28px 24px; width: 340px;
+             box-shadow: 0 12px 40px rgba(0,0,0,.1); }
+#auth h2 { font-size: 20px; margin-bottom: 4px; }
+#auth .en { color: #8a94a6; font-size: 13px; font-weight: normal; }
+#auth .tip { color: #8a94a6; font-size: 13px; margin: 6px 0 18px; }
+#auth label { display: block; font-size: 13px; color: #55607a; margin: 12px 0 4px; }
+#auth input { width: 100%; padding: 10px 12px; border: 1px solid #d6dbe4;
+              border-radius: 8px; font-size: 14px; }
+#auth input:focus { border-color: #3b7cff; outline: none; }
+#auth .err { color: #e0483d; font-size: 13px; min-height: 18px; margin-top: 10px; }
+#auth button.primary { width: 100%; margin-top: 16px; padding: 11px; border: none;
+                       border-radius: 8px; font-size: 15px; cursor: pointer; }
+#auth .switch { text-align: center; margin-top: 14px; font-size: 13px; color: #55607a; }
+#auth .switch a { color: #3b7cff; cursor: pointer; }
+.userbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+           font-size: 13px; color: #8a94a6; margin-bottom: 10px; }
+.userbar b { color: #1f2733; }
+.userbar button { background: #eef1f6; color: #55607a; border: none; border-radius: 8px;
+                  padding: 5px 12px; font-size: 12px; cursor: pointer; }
