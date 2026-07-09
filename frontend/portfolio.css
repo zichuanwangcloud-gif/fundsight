@@ -1,0 +1,4 @@
+/* 「我的持仓」页专属样式 —— 线路 D 追加。基础布局/颜色沿用 app.css。 */
+.card .detail-link { margin-top: 8px; font-size: 12px; }
+.card .detail-link a { color: #3b7cff; text-decoration: none; }
+.card .detail-link a:hover { text-decoration: underline; }
