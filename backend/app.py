@@ -33,47 +33,94 @@ def search_funds(q):
     return [dict(r) for r in rows]
 
 
+def enrich_holding(h, quote):
+    """单条持仓 + 行情缓存 → 富集后的展示项（纯计算，无副作用）。
+
+    h: holding 行 dict；quote: fund_quote 行 dict 或 None。
+    取不到行情时只返回持仓基础字段，业务层容忍缺估值。
+    """
+    item = dict(h)
+    if not quote:
+        return item
+    q = dict(quote)
+    item["name"] = q["name"]
+    item["gszzl"] = q["gszzl"]      # 当日涨幅
+    item["gsz"] = q["gsz"]
+    item["dwjz"] = q["dwjz"]
+    item["gztime"] = q["gztime"]
+    # 今日浮动盈亏 = 份额 * (gsz - dwjz)，份额 = 持仓金额 / dwjz
+    if h["hold_amount"] and q["dwjz"] and q["gsz"]:
+        shares = h["hold_amount"] / q["dwjz"]
+        item["today_pl"] = round(shares * (q["gsz"] - q["dwjz"]), 2)
+        item["est_value"] = round(shares * q["gsz"], 2)
+    # 距目标: 目标净值 - 当前估值
+    if h["target_price"] and q["gsz"]:
+        item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
+    # 持仓收益率% = (估算市值 - 成本) / 成本 * 100
+    if h["cost_amount"] and item.get("est_value") is not None:
+        cost_return_rate = (item["est_value"] - h["cost_amount"]) / h["cost_amount"] * 100
+        item["cost_return_rate"] = round(cost_return_rate, 2)
+        # 止盈：持仓收益率 达到/超过 止盈线
+        if h["stop_profit"] is not None:
+            item["hit_stop_profit"] = cost_return_rate >= h["stop_profit"]
+        # 止损：持仓收益率 达到/低于 止损线（止损线通常为负数，按数值直接比较）
+        if h["stop_loss"] is not None:
+            item["hit_stop_loss"] = cost_return_rate <= h["stop_loss"]
+        # 距目标收益率
+        if h["target_rate"] is not None:
+            item["gap_to_target_rate"] = round(h["target_rate"] - cost_return_rate, 2)
+    return item
+
+
+def summarize(items):
+    """富集项列表 → 组合总览汇总（纯计算）。
+
+    口径约定：总市值 / 今日盈亏累加所有有值的持仓；累计盈亏与总收益率
+    只对「同时具备 est_value 与 cost_amount」的子集计算，避免混入无成本
+    记录导致收益率失真。matched_count 供前端标注「基于 N 笔有成本记录」。
+    """
+    total_today_pl = 0.0
+    total_est_value = 0.0
+    total_cost = 0.0
+    matched_est = 0.0
+    matched_count = 0
+    for it in items:
+        if it.get("today_pl") is not None:
+            total_today_pl += it["today_pl"]
+        if it.get("est_value") is not None:
+            total_est_value += it["est_value"]
+            if it.get("cost_amount") is not None:
+                total_cost += it["cost_amount"]
+                matched_est += it["est_value"]
+                matched_count += 1
+    total_pl = round(matched_est - total_cost, 2) if matched_count else None
+    total_return_rate = (
+        round((matched_est - total_cost) / total_cost * 100, 2)
+        if total_cost > 0 else None
+    )
+    return {
+        "count": len(items),
+        "total_today_pl": round(total_today_pl, 2),
+        "total_est_value": round(total_est_value, 2),
+        "total_cost": round(total_cost, 2),
+        "matched_count": matched_count,
+        "total_pl": total_pl,
+        "total_return_rate": total_return_rate,
+    }
+
+
 def list_holdings():
     conn = get_conn()
     holds = [dict(r) for r in conn.execute("SELECT * FROM holding ORDER BY id").fetchall()]
     codes = [h["fund_code"] for h in holds]
     if codes:
         refresh_quotes(conn, codes)  # 刷新估值到缓存
-    result = []
+    items = []
     for h in holds:
         q = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (h["fund_code"],)).fetchone()
-        item = dict(h)
-        if q:
-            q = dict(q)
-            item["name"] = q["name"]
-            item["gszzl"] = q["gszzl"]      # 当日涨幅
-            item["gsz"] = q["gsz"]
-            item["dwjz"] = q["dwjz"]
-            item["gztime"] = q["gztime"]
-            # 今日浮动盈亏 = 份额 * (gsz - dwjz)，份额 = 持仓金额 / dwjz
-            if h["hold_amount"] and q["dwjz"] and q["gsz"]:
-                shares = h["hold_amount"] / q["dwjz"]
-                item["today_pl"] = round(shares * (q["gsz"] - q["dwjz"]), 2)
-                item["est_value"] = round(shares * q["gsz"], 2)
-            # 距目标: 目标净值 - 当前估值
-            if h["target_price"] and q["gsz"]:
-                item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
-            # 持仓收益率% = (估算市值 - 成本) / 成本 * 100
-            if h["cost_amount"] and item.get("est_value") is not None:
-                cost_return_rate = (item["est_value"] - h["cost_amount"]) / h["cost_amount"] * 100
-                item["cost_return_rate"] = round(cost_return_rate, 2)
-                # 止盈：持仓收益率 达到/超过 止盈线
-                if h["stop_profit"] is not None:
-                    item["hit_stop_profit"] = cost_return_rate >= h["stop_profit"]
-                # 止损：持仓收益率 达到/低于 止损线（止损线通常为负数，按数值直接比较）
-                if h["stop_loss"] is not None:
-                    item["hit_stop_loss"] = cost_return_rate <= h["stop_loss"]
-                # 距目标收益率
-                if h["target_rate"] is not None:
-                    item["gap_to_target_rate"] = round(h["target_rate"] - cost_return_rate, 2)
-        result.append(item)
+        items.append(enrich_holding(h, q))
     conn.close()
-    return result
+    return {"items": items, "summary": summarize(items)}
 
 
 def add_holding(data):
@@ -98,6 +145,25 @@ def add_holding(data):
 def delete_holding(hid):
     conn = get_conn()
     conn.execute("DELETE FROM holding WHERE id=?", (hid,))
+    conn.commit()
+    conn.close()
+
+
+def update_holding(hid, data):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE holding SET hold_amount=?,cost_amount=?,target_rate=?,"
+        "target_price=?,stop_profit=?,stop_loss=? WHERE id=?",
+        (
+            _num(data.get("hold_amount")),
+            _num(data.get("cost_amount")),
+            _num(data.get("target_rate")),
+            _num(data.get("target_price")),
+            _num(data.get("stop_profit")),
+            _num(data.get("stop_loss")),
+            hid,
+        ),
+    )
     conn.commit()
     conn.close()
 
@@ -134,6 +200,16 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
             data = json.loads(self.rfile.read(n) or "{}")
             add_holding(data)
+            return self._json({"ok": True})
+        self._json({"error": "not found"}, 404)
+
+    def do_PUT(self):
+        p = urlparse(self.path).path
+        if p.startswith("/api/holdings/"):
+            hid = p.rsplit("/", 1)[-1]
+            n = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(n) or "{}")
+            update_holding(hid, data)
             return self._json({"ok": True})
         self._json({"error": "not found"}, 404)
 

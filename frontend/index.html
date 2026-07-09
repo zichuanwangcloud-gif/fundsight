@@ -24,6 +24,20 @@
   #results .type { float: right; color: #b0b7c3; font-size: 12px; }
   .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px;
           box-shadow: 0 1px 3px rgba(0,0,0,.05); border: 2px solid transparent; }
+  .summary { background: linear-gradient(135deg, #2b3a5c, #3b7cff); color: #fff;
+             border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; display: none; }
+  .summary .s-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .summary .s-title { font-size: 14px; font-weight: 600; opacity: .95; }
+  .summary .s-refresh { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .summary .s-refresh button { background: rgba(255,255,255,.18); color: #fff; border: none;
+             border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  .summary .s-refresh button:hover { background: rgba(255,255,255,.3); }
+  .summary .s-refresh .s-time { opacity: .75; }
+  .summary .s-grid { display: flex; gap: 26px; flex-wrap: wrap; }
+  .summary .s-grid > div { font-size: 12px; opacity: .85; }
+  .summary .s-grid b { display: block; font-size: 19px; font-weight: 700; opacity: 1; margin-top: 3px; }
+  .summary .s-up { color: #ffd0cc; } .summary .s-down { color: #b9f6c8; } .summary .s-flat { color: #fff; }
+  .summary .s-note { margin-top: 10px; font-size: 11px; opacity: .7; }
   .card.hit-profit { border-color: #f0b429; box-shadow: 0 0 0 2px rgba(240,180,41,.25), 0 1px 3px rgba(0,0,0,.05); }
   .card.hit-loss { border-color: #e0483d; box-shadow: 0 0 0 2px rgba(224,72,61,.2), 0 1px 3px rgba(0,0,0,.05); }
   .card .top { display: flex; justify-content: space-between; align-items: baseline; }
@@ -34,6 +48,7 @@
   .card .metrics { display: flex; gap: 24px; margin-top: 10px; font-size: 13px; color: #55607a; }
   .card .metrics b { display: block; font-size: 15px; color: #1f2733; margin-top: 2px; }
   .card .del { float: right; color: #c0c6d0; cursor: pointer; font-size: 13px; }
+  .card .edit { float: right; color: #8a94a6; cursor: pointer; font-size: 13px; margin-left: 14px; }
   .card .gztime { color: #b0b7c3; font-size: 11px; margin-top: 8px; }
   .badges { margin-top: 8px; display: flex; gap: 8px; }
   .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
@@ -58,6 +73,7 @@
     <div id="results"></div>
   </div>
 
+  <div id="summary" class="summary"></div>
   <div id="list"></div>
 
   <dialog id="dlg">
@@ -85,6 +101,7 @@
 const $ = s => document.querySelector(s);
 const q = $("#q"), results = $("#results"), dlg = $("#dlg");
 let timer = null;
+let editingId = null;   // null=新增，非空=编辑该持仓 id
 
 q.addEventListener("input", () => {
   clearTimeout(timer);
@@ -107,25 +124,39 @@ document.addEventListener("click", e => {
 
 function openDlg(f) {
   results.style.display = "none"; q.value = "";
+  editingId = null;
   $("#dlg-title").textContent = "添加自选 · " + f.name;
   $("#d-code").value = f.fund_code;
   $("#d-hold").value = $("#d-cost").value = $("#d-target").value = "";
   $("#d-target-rate").value = $("#d-profit").value = $("#d-loss").value = "";
   dlg.showModal();
 }
+function editHolding(it) {
+  editingId = it.id;
+  $("#dlg-title").textContent = "编辑持仓 · " + (it.name || it.fund_code);
+  $("#d-code").value = it.fund_code;
+  $("#d-hold").value = it.hold_amount ?? "";
+  $("#d-cost").value = it.cost_amount ?? "";
+  $("#d-target").value = it.target_price ?? "";
+  $("#d-target-rate").value = it.target_rate ?? "";
+  $("#d-profit").value = it.stop_profit ?? "";
+  $("#d-loss").value = it.stop_loss ?? "";
+  dlg.showModal();
+}
 async function submitHolding() {
-  await fetch("/api/holdings", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      fund_code: $("#d-code").value,
-      hold_amount: $("#d-hold").value,
-      cost_amount: $("#d-cost").value,
-      target_price: $("#d-target").value,
-      target_rate: $("#d-target-rate").value,
-      stop_profit: $("#d-profit").value,
-      stop_loss: $("#d-loss").value,
-    })
+  const body = JSON.stringify({
+    fund_code: $("#d-code").value,
+    hold_amount: $("#d-hold").value,
+    cost_amount: $("#d-cost").value,
+    target_price: $("#d-target").value,
+    target_rate: $("#d-target-rate").value,
+    stop_profit: $("#d-profit").value,
+    stop_loss: $("#d-loss").value,
   });
+  const url = editingId ? "/api/holdings/" + editingId : "/api/holdings";
+  const method = editingId ? "PUT" : "POST";
+  await fetch(url, { method, headers: {"Content-Type":"application/json"}, body });
+  editingId = null;
   dlg.close(); load();
 }
 async function del(id) {
@@ -134,11 +165,37 @@ async function del(id) {
 }
 
 function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : "flat"; }
+function scls(v) { return v > 0 ? "s-up" : v < 0 ? "s-down" : "s-flat"; }
 function sign(v) { return (v > 0 ? "+" : "") + v; }
+
+function renderSummary(s) {
+  const box = $("#summary");
+  if (!s || !s.count) { box.style.display = "none"; return; }
+  const pl = s.total_today_pl, tot = s.total_pl, rate = s.total_return_rate;
+  const now = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  box.innerHTML = `
+    <div class="s-head">
+      <span class="s-title">组合总览 · ${s.count} 只自选</span>
+      <span class="s-refresh">
+        <span class="s-time">更新于 ${now}</span>
+        <button onclick="load()">🔄 刷新</button>
+      </span>
+    </div>
+    <div class="s-grid">
+      <div>总估值市值<b>${s.total_est_value.toLocaleString()}</b></div>
+      <div>今日盈亏<b class="${scls(pl)}">${sign(pl)}</b></div>
+      ${tot!=null?`<div>累计盈亏<b class="${scls(tot)}">${sign(tot)}</b></div>`:""}
+      ${rate!=null?`<div>总收益率<b class="${scls(rate)}">${sign(rate)}%</b></div>`:""}
+    </div>
+    ${tot!=null&&s.matched_count<s.count?`<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>`:""}`;
+  box.style.display = "block";
+}
 
 async function load() {
   const r = await fetch("/api/holdings");
-  const items = await r.json();
+  const data = await r.json();
+  const items = data.items || [];
+  renderSummary(data.summary);
   if (!items.length) { $("#list").innerHTML = `<div class="empty">还没有自选，搜索基金加入吧 👆</div>`; return; }
   $("#list").innerHTML = items.map(it => {
     const z = it.gszzl;
@@ -152,6 +209,7 @@ async function load() {
     if (it.hit_stop_loss) badges.push(`<span class="badge loss">⚠️ 止损</span>`);
     return `<div class="${cardCls.join(" ")}">
       <span class="del" onclick="del(${it.id})">移除 ✕</span>
+      <span class="edit" onclick='editHolding(${JSON.stringify(it).replace(/'/g,"&#39;")})'>编辑 ✎</span>
       <div class="top">
         <div><span class="fname">${it.name||it.fund_code}</span>
              <span class="fcode">${it.fund_code}</span></div>
