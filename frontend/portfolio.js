@@ -161,6 +161,7 @@ async function load() {
              <span class="fcode">${it.fund_code}</span></div>
         <div class="zdf ${cls(z)}">${z == null ? "—" : sign(z) + "%"}</div>
       </div>
+      <div class="detail-link"><a href="#/fund/${it.fund_code}" onclick="event.stopPropagation()">查看详情 →</a></div>
       <div class="metrics">
         ${it.hold_amount != null ? `<div>持仓金额<b>${it.hold_amount}</b></div>` : ""}
         ${pl != null ? `<div>今日盈亏<span class="tag">估算</span><b class="${cls(pl)}">${sign(pl)}</b></div>` : ""}
