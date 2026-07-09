@@ -3,12 +3,16 @@
 
 SQLite 单文件，位于 data/fundsight.db。
 表：fund_list（搜索用全量列表）/ fund_quote（行情缓存）/ holding（自选+持仓+预期）
+    / user（账号）/ session（登录会话）
 """
 import os
 import sqlite3
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "fundsight.db")
-DB_PATH = os.path.abspath(DB_PATH)
+_DEFAULT_DB_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "fundsight.db")
+)
+# 部署可用 FUNDSIGHT_DB 指定持久化路径；未设置则落在仓库 data/ 下。
+DB_PATH = os.path.abspath(os.environ.get("FUNDSIGHT_DB") or _DEFAULT_DB_PATH)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS fund_list (
@@ -52,9 +56,27 @@ CREATE TABLE IF NOT EXISTS fund_nav_history (
     PRIMARY KEY (fund_code, nav_date)
 );
 
+-- 用户体系：账号 + 会话。密码用 pbkdf2 加盐哈希（见 backend/auth.py），零第三方依赖。
+CREATE TABLE IF NOT EXISTS user (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT UNIQUE NOT NULL,
+    pwd_hash   TEXT NOT NULL,   -- pbkdf2_hmac(sha256) 十六进制
+    pwd_salt   TEXT NOT NULL,   -- 每用户随机盐（十六进制）
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS session (
+    token      TEXT PRIMARY KEY,   -- secrets.token_urlsafe
+    user_id    INTEGER NOT NULL,
+    created_at TEXT,
+    expires_at TEXT                 -- datetime，过期即失效
+);
+
 -- 搜索索引：全量同步后 fund_list 达 2.7 万行，为名称/拼音匹配与排序兜底
 CREATE INDEX IF NOT EXISTS idx_fund_list_name ON fund_list(name);
 CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);
+-- 自选按用户隔离，加索引加速 WHERE user_id=? 过滤
+CREATE INDEX IF NOT EXISTS idx_holding_user ON holding(user_id);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖

@@ -2,15 +2,22 @@
 """盈见 FundSight 业务 API —— 纯标准库 http.server，零依赖。
 
 接口:
-  GET  /api/search?q=关键字        搜本地 fund_list（代码/名称/拼音）
-  GET  /api/holdings               我的自选 + 实时估值 + 盈亏 + 距预期
+  POST /api/register              注册账号（用户名+密码）→ 登录态
+  POST /api/login                 登录 → 签发会话 Cookie
+  POST /api/logout                登出 → 清会话
+  GET  /api/me                    当前登录用户（未登录 401）
+  GET  /api/search?q=关键字        搜本地 fund_list（代码/名称/拼音，公共数据）
+  GET  /api/holdings               我的自选 + 实时估值 + 盈亏 + 距预期（按用户隔离）
   POST /api/holdings               加自选/录持仓
   DELETE /api/holdings/{id}        移除自选
   GET  /                           前端页面
+
+自选数据按登录用户隔离：所有 holding 读写均带 user_id，越权访问不生效。
 """
 import json
 import os
 import sys
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -21,6 +28,9 @@ from backend.scheduler import (  # noqa: E402
     start_quote_refresh, trigger_quote_for,
     start_history_refresh, trigger_history_for,
 )
+from backend import auth  # noqa: E402
+
+SESSION_COOKIE = "fs_session"
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
 
@@ -156,11 +166,12 @@ def summarize(items):
     }
 
 
-def list_holdings():
+def list_holdings(user_id):
     # 业务层只读缓存：估值由 scheduler 后台定时写入 fund_quote，
-    # 这里绝不触发外部抓取（防封 IP + 扛并发 + 响应快）。
+    # 这里绝不触发外部抓取（防封 IP + 扛并发 + 响应快）。按用户隔离。
     conn = get_conn()
-    holds = [dict(r) for r in conn.execute("SELECT * FROM holding ORDER BY id").fetchall()]
+    holds = [dict(r) for r in conn.execute(
+        "SELECT * FROM holding WHERE user_id=? ORDER BY id", (user_id,)).fetchall()]
     items = []
     for h in holds:
         q = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (h["fund_code"],)).fetchone()
@@ -169,12 +180,13 @@ def list_holdings():
     return {"items": items, "summary": summarize(items)}
 
 
-def add_holding(data):
+def add_holding(data, user_id):
     conn = get_conn()
     conn.execute(
-        "INSERT INTO holding(fund_code,hold_amount,cost_amount,target_rate,target_price,"
-        "stop_profit,stop_loss,created_at) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'))",
+        "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,target_rate,target_price,"
+        "stop_profit,stop_loss,created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))",
         (
+            user_id,
             data.get("fund_code"),
             _num(data.get("hold_amount")),
             _num(data.get("cost_amount")),
@@ -194,18 +206,18 @@ def add_holding(data):
         trigger_history_for(code)  # 顺带拉历史序列,新持仓卡片几秒内有走势图
 
 
-def delete_holding(hid):
+def delete_holding(hid, user_id):
     conn = get_conn()
-    conn.execute("DELETE FROM holding WHERE id=?", (hid,))
+    conn.execute("DELETE FROM holding WHERE id=? AND user_id=?", (hid, user_id))
     conn.commit()
     conn.close()
 
 
-def update_holding(hid, data):
+def update_holding(hid, data, user_id):
     conn = get_conn()
     conn.execute(
         "UPDATE holding SET hold_amount=?,cost_amount=?,target_rate=?,"
-        "target_price=?,stop_profit=?,stop_loss=? WHERE id=?",
+        "target_price=?,stop_profit=?,stop_loss=? WHERE id=? AND user_id=?",
         (
             _num(data.get("hold_amount")),
             _num(data.get("cost_amount")),
@@ -214,6 +226,7 @@ def update_holding(hid, data):
             _num(data.get("stop_profit")),
             _num(data.get("stop_loss")),
             hid,
+            user_id,
         ),
     )
     conn.commit()
@@ -228,24 +241,79 @@ def _num(v):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _json(self, obj, code=200):
+    def _json(self, obj, code=200, extra_headers=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for k, v in (extra_headers or []):
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    # ---- 鉴权辅助 ----
+    def _session_token(self):
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return None
+        try:
+            jar = SimpleCookie(raw)
+        except Exception:
+            return None
+        m = jar.get(SESSION_COOKIE)
+        return m.value if m else None
+
+    def _current_user(self):
+        """当前登录用户 id | None。"""
+        return auth.get_user_by_token(self._session_token())
+
+    def _require_auth(self):
+        """返回 user_id；未登录则回 401 并返回 None（调用方据此提前 return）。"""
+        uid = self._current_user()
+        if uid is None:
+            self._json({"error": "unauthorized"}, 401)
+            return None
+        return uid
+
+    def _session_cookie_header(self, token, max_age=30 * 24 * 3600):
+        # 本地 http 不加 Secure；HTTPS 部署应追加 "; Secure"。
+        return (
+            "Set-Cookie",
+            f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax; Max-Age={max_age}",
+        )
+
+    def _clear_cookie_header(self):
+        return (
+            "Set-Cookie",
+            f"{SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0",
+        )
+
+    def _read_json(self):
+        n = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(n) or "{}") if n else {}
 
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/" or u.path == "/index.html":
             return self._serve_html()
+        if u.path == "/api/me":
+            uid = self._require_auth()
+            if uid is None:
+                return
+            return self._json({"username": auth.get_username(uid)})
         if u.path == "/api/search":
+            if self._require_auth() is None:
+                return
             q = (parse_qs(u.query).get("q") or [""])[0].strip()
             return self._json(search_funds(q) if q else [])
         if u.path == "/api/holdings":
-            return self._json(list_holdings())
+            uid = self._require_auth()
+            if uid is None:
+                return
+            return self._json(list_holdings(uid))
         if u.path == "/api/nav_history":
+            if self._require_auth() is None:
+                return
             qs = parse_qs(u.query)
             code = (qs.get("code") or [""])[0].strip()
             try:
@@ -256,30 +324,71 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        if urlparse(self.path).path == "/api/holdings":
-            n = int(self.headers.get("Content-Length", 0))
-            data = json.loads(self.rfile.read(n) or "{}")
-            add_holding(data)
+        p = urlparse(self.path).path
+        if p == "/api/register":
+            return self._handle_register()
+        if p == "/api/login":
+            return self._handle_login()
+        if p == "/api/logout":
+            return self._handle_logout()
+        if p == "/api/holdings":
+            uid = self._require_auth()
+            if uid is None:
+                return
+            add_holding(self._read_json(), uid)
             return self._json({"ok": True})
         self._json({"error": "not found"}, 404)
 
     def do_PUT(self):
         p = urlparse(self.path).path
         if p.startswith("/api/holdings/"):
+            uid = self._require_auth()
+            if uid is None:
+                return
             hid = p.rsplit("/", 1)[-1]
-            n = int(self.headers.get("Content-Length", 0))
-            data = json.loads(self.rfile.read(n) or "{}")
-            update_holding(hid, data)
+            update_holding(hid, self._read_json(), uid)
             return self._json({"ok": True})
         self._json({"error": "not found"}, 404)
 
     def do_DELETE(self):
         p = urlparse(self.path).path
         if p.startswith("/api/holdings/"):
+            uid = self._require_auth()
+            if uid is None:
+                return
             hid = p.rsplit("/", 1)[-1]
-            delete_holding(hid)
+            delete_holding(hid, uid)
             return self._json({"ok": True})
         self._json({"error": "not found"}, 404)
+
+    # ---- 账号端点 ----
+    def _handle_register(self):
+        data = self._read_json()
+        username = (data.get("username") or "").strip()
+        password = data.get("password") or ""
+        if not username or not password:
+            return self._json({"error": "用户名和密码不能为空"}, 400)
+        try:
+            uid = auth.create_user(username, password)
+        except auth.UsernameTaken:
+            return self._json({"error": "用户名已被占用"}, 409)
+        except ValueError as e:
+            return self._json({"error": str(e)}, 400)
+        token = auth.create_session(uid)
+        self._json({"username": username}, extra_headers=[self._session_cookie_header(token)])
+
+    def _handle_login(self):
+        data = self._read_json()
+        uid = auth.authenticate(data.get("username"), data.get("password") or "")
+        if uid is None:
+            return self._json({"error": "用户名或密码错误"}, 401)
+        token = auth.create_session(uid)
+        self._json({"username": auth.get_username(uid)},
+                   extra_headers=[self._session_cookie_header(token)])
+
+    def _handle_logout(self):
+        auth.delete_session(self._session_token())
+        self._json({"ok": True}, extra_headers=[self._clear_cookie_header()])
 
     def _serve_html(self):
         with open(FRONTEND, "rb") as f:

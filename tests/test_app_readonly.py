@@ -33,12 +33,12 @@ class TestListHoldingsReadOnly(unittest.TestCase):
         c.row_factory = sqlite3.Row
         return c
 
-    def _add_holding(self, code="020608", amount=10000.0):
+    def _add_holding(self, code="020608", amount=10000.0, user_id=1):
         conn = self._conn()
         conn.execute(
-            "INSERT INTO holding(fund_code,hold_amount,cost_amount,created_at)"
-            " VALUES (?,?,?,datetime('now'))",
-            (code, amount, 8500.0),
+            "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,created_at)"
+            " VALUES (?,?,?,?,datetime('now'))",
+            (user_id, code, amount, 8500.0),
         )
         conn.commit()
         conn.close()
@@ -58,7 +58,7 @@ class TestListHoldingsReadOnly(unittest.TestCase):
         self._add_holding()
         self._seed_quote()
         with patch("backend.datasource.fundgz.refresh_quotes") as mock_rq:
-            result = app_mod.list_holdings()
+            result = app_mod.list_holdings(1)
         mock_rq.assert_not_called()
         self.assertEqual(len(result["items"]), 1)
 
@@ -66,7 +66,7 @@ class TestListHoldingsReadOnly(unittest.TestCase):
         # 缓存里有估值 → list_holdings 应正确返回
         self._add_holding()
         self._seed_quote()
-        result = app_mod.list_holdings()
+        result = app_mod.list_holdings(1)
         item = result["items"][0]
         self.assertEqual(item["gsz"], 1.0500)
         self.assertEqual(item["gszzl"], 5.0)
@@ -76,7 +76,7 @@ class TestListHoldingsReadOnly(unittest.TestCase):
         # 刚加持仓、缓存还没有 → 返回基础字段,不报错、不抓取
         self._add_holding()
         with patch("backend.datasource.fundgz.refresh_quotes") as mock_rq:
-            result = app_mod.list_holdings()
+            result = app_mod.list_holdings(1)
         mock_rq.assert_not_called()
         item = result["items"][0]
         self.assertEqual(item["fund_code"], "020608")
