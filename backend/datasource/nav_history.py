@@ -43,7 +43,10 @@ def _f(v):
 def fetch_nav_history(code):
     """拉取单只基金的完整历史净值序列。
 
-    返回 [(date_str 'YYYY-MM-DD', nav float), ...],失败返回 None。
+    返回 [(date_str 'YYYY-MM-DD', nav float, equity_return float|None), ...],
+    失败返回 None。第三项 equity_return 取自报文的 `equityReturn`(当日涨跌幅 %),
+    用于详情页涨跌柱;旧调用方只解包前两项(date, nav)时不受影响,因为额外一项
+    对索引 [0]/[1] 访问无影响。
     """
     url = _PINGZHONG_URL.format(code=code)
     try:
@@ -71,13 +74,14 @@ def fetch_nav_history(code):
         if ts_ms is None or nav is None:
             continue
         date = datetime.datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
-        series.append((date, _f(nav)))
+        series.append((date, _f(nav), _f(pt.get("equityReturn"))))
     return series or None
 
 
 def refresh_nav_history(conn, codes):
     """批量拉取并写入 fund_nav_history。主键 (fund_code,nav_date) 幂等去重。
 
+    兼容旧调用方传入的 (date, nav) 二元组(equity_return 按 None 写入)。
     返回成功写入的基金数(非点数)。
     """
     ok = 0
@@ -85,10 +89,16 @@ def refresh_nav_history(conn, codes):
         series = fetch_nav_history(code)
         if not series:
             continue
+        rows = [
+            (code, row[0], row[1], row[2] if len(row) > 2 else None)
+            for row in series
+        ]
         conn.executemany(
-            "INSERT INTO fund_nav_history(fund_code,nav_date,nav) VALUES (?,?,?) "
-            "ON CONFLICT(fund_code,nav_date) DO UPDATE SET nav=excluded.nav",
-            [(code, d, v) for d, v in series],
+            "INSERT INTO fund_nav_history(fund_code,nav_date,nav,equity_return) "
+            "VALUES (?,?,?,?) "
+            "ON CONFLICT(fund_code,nav_date) DO UPDATE SET "
+            "nav=excluded.nav, equity_return=excluded.equity_return",
+            rows,
         )
         ok += 1
     conn.commit()

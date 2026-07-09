@@ -45,6 +45,20 @@ _STATIC_TYPES = {
 }
 
 
+def _recover_path(raw):
+    """还原请求路径为 UTF-8。
+
+    http.server 按 latin-1 解码请求行,URL 里未百分号编码的中文(如浏览器地址栏
+    直接输入或某些客户端未编码)会被拆成逐字节的 latin-1 乱码。按 latin-1 编回原始
+    字节、再以 UTF-8 解码即可还原;纯 ASCII 或已百分号编码(%XX 均为 ASCII)的路径
+    round-trip 无损,是空操作。无法还原(非法字节序列)时原样返回,不影响原有行为。
+    """
+    try:
+        return raw.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return raw
+
+
 def search_funds(q):
     conn = get_conn()
     like = f"%{q}%"
@@ -302,8 +316,12 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or "{}") if n else {}
 
+    def _path(self):
+        """UTF-8 还原后的请求路径(见模块级 _recover_path)。"""
+        return _recover_path(self.path)
+
     def do_GET(self):
-        u = urlparse(self.path)
+        u = urlparse(self._path())
         if not u.path.startswith("/api/"):
             return self._serve_static(u.path)
         if u.path == "/api/me":
@@ -336,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_POST(self):
-        p = urlparse(self.path).path
+        p = urlparse(self._path()).path
         if p == "/api/register":
             return self._handle_register()
         if p == "/api/login":
@@ -354,7 +372,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_PUT(self):
-        p = urlparse(self.path).path
+        p = urlparse(self._path()).path
         if p.startswith("/api/holdings/"):
             uid = self._require_auth()
             if uid is None:
@@ -367,7 +385,7 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
     def do_DELETE(self):
-        p = urlparse(self.path).path
+        p = urlparse(self._path()).path
         if p.startswith("/api/holdings/"):
             uid = self._require_auth()
             if uid is None:
@@ -385,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         供后续线路(市场/详情/流水)注册的新端点用;当前登录用户注入 ctx.user_id,
         需要鉴权的 handler 自行判断。
         """
-        u = urlparse(self.path)
+        u = urlparse(self._path())
         body = self._read_json() if method in ("POST", "PUT") else {}
         result = dispatch(ALL_ROUTES, method, u.path, parse_qs(u.query), body, self._current_user())
         if result is None:
