@@ -27,6 +27,7 @@ from backend.scheduler import (  # noqa: E402
     maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh,
     start_quote_refresh, trigger_quote_for,
     start_history_refresh, trigger_history_for,
+    start_profile_refresh,
 )
 from backend import auth  # noqa: E402
 from backend.api import ALL_ROUTES  # noqa: E402
@@ -473,6 +474,8 @@ def main():
     start_quote_refresh(interval_seconds=60)
     # 历史净值序列:后台日更持仓基金的走势数据(走势图用)。
     start_history_refresh(interval_hours=24)
+    # 基本面(经理/规模/收益/费率):后台日更持仓/被查基金的 profile,变化慢故 run_now=False。
+    start_profile_refresh(interval_hours=24)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
