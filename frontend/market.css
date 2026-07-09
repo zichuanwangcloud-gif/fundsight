@@ -1,0 +1,33 @@
+/* 「基金市场」页 —— 分类 Tab + 搜索 + 分页列表。与 app.css 配色/圆角保持一致。 */
+
+.mkt-search { margin-bottom: 16px; }
+.mkt-search #mkt-q { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #d6dbe4;
+     border-radius: 10px; outline: none; }
+.mkt-search #mkt-q:focus { border-color: #3b7cff; }
+
+.mkt-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.mkt-tab { padding: 7px 14px; font-size: 13px; color: #55607a; background: #eef1f6;
+           border-radius: 999px; cursor: pointer; user-select: none; }
+.mkt-tab:hover { background: #e2e6ee; }
+.mkt-tab.active { background: #3b7cff; color: #fff; }
+.mkt-tab-n { margin-left: 5px; font-size: 11px; opacity: .75; }
+
+.mkt-list { display: flex; flex-direction: column; gap: 8px; }
+.mkt-row { background: #fff; border-radius: 10px; padding: 12px 14px; display: flex;
+           justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.mkt-row-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.mkt-name { font-size: 14px; font-weight: 600; color: #1f2733; }
+.mkt-code { font-size: 12px; color: #8a94a6; }
+.mkt-type { font-size: 11px; color: #b0b7c3; background: #f4f6f9; padding: 1px 6px; border-radius: 4px; }
+
+.mkt-add { flex-shrink: 0; margin-left: 12px; background: #3b7cff; color: #fff; border: none;
+           border-radius: 8px; padding: 6px 14px; font-size: 12px; cursor: pointer; }
+.mkt-add:hover { background: #2f68e0; }
+.mkt-add:disabled { opacity: .6; cursor: default; }
+.mkt-held { flex-shrink: 0; margin-left: 12px; font-size: 12px; color: #16a34a; font-weight: 600; }
+
+.mkt-loading { text-align: center; color: #a0a8b8; padding: 40px 0; }
+.mkt-more { text-align: center; margin-top: 14px; }
+.mkt-more button { background: #eef1f6; color: #55607a; border: none; border-radius: 8px;
+                    padding: 9px 20px; font-size: 13px; cursor: pointer; }
+.mkt-more button:hover { background: #e2e6ee; }
