@@ -1,5 +1,6 @@
-// 「系统状态」页 —— 抓取任务可观测面板(M9-B)。
-// 只读 /api/admin/sync-status(各任务最近一次概览) + /api/admin/sync-runs(流水)。
+// 「系统状态」页 —— 抓取任务可观测面板(M9-B) + 失败告警区(M10C)。
+// 只读 /api/admin/sync-status(各任务最近一次概览) + /api/admin/sync-runs(流水)
+//      + /api/admin/sync-alerts(未恢复失败任务 + 受影响基金)。
 // cls / scls / $ / getJSON / showAuth 来自 app.js / auth.js(全局)。
 
 // 后台任务名 → 中文标签
@@ -31,11 +32,40 @@ async function renderAdmin(view) {
       <button class="ghost" onclick="renderAdmin(document.getElementById('view'))">刷新</button>
     </div>
     <p class="admin-hint">后台各抓取任务的执行结果(只读)。失败行点「错误」列查原因。</p>
+    <h3 class="admin-sec">告警 <span class="admin-muted">(连续失败未恢复的任务)</span></h3>
+    <div id="admin-alerts"></div>
     <h3 class="admin-sec">各任务最近一次</h3>
     <div id="admin-summary"></div>
     <h3 class="admin-sec">最近执行流水 <span class="admin-muted">(最近 50 条)</span></h3>
     <div id="admin-runs"></div>`;
-  await Promise.all([_loadSummary(), _loadRuns()]);
+  await Promise.all([_loadAlerts(), _loadSummary(), _loadRuns()]);
+}
+
+async function _loadAlerts() {
+  const box = $("#admin-alerts");
+  try {
+    const resp = await fetch("/api/admin/sync-alerts", { credentials: "same-origin" });
+    if (resp.status === 401) return showAuth();
+    const data = await resp.json();
+    if (!data.alerts || !data.alerts.length) {
+      box.innerHTML = `<p class="admin-muted">暂无未恢复的失败任务</p>`;
+      return;
+    }
+    box.innerHTML = `
+      <div class="admin-alerts">${data.alerts.map(a => `
+        <div class="alert-item">
+          <div class="alert-head">
+            <span class="badge fail">连续失败 ${a.consecutive_fails} 次</span>
+            <span class="alert-task">${_taskLabel(a.task_name)}</span>
+            <span class="admin-muted">${a.last_started_at || "—"}</span>
+          </div>
+          <div class="alert-funds"><span class="admin-muted">受影响基金:</span> ${a.affected_funds.length ? a.affected_funds.join("、") : "—"}</div>
+          ${a.last_error ? `<div class="admin-err alert-err">${a.last_error}</div>` : ""}
+        </div>`).join("")}
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<p class="admin-err">加载失败: ${e}</p>`;
+  }
 }
 
 async function _loadSummary() {

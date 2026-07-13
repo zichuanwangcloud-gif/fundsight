@@ -17,6 +17,12 @@ from datetime import datetime, timedelta
 from backend.models.db import get_conn, SEED_FUNDS
 
 
+# ---- 抓取失败重试 + 连续失败告警(M10C) ----
+DEFAULT_RETRIES = 2        # _safe_* 失败后重试次数(默认 2,间隔递增)
+RETRY_BASE_DELAY = 10     # 重试间隔基数(秒):第 i 次重试 sleep RETRY_BASE_DELAY * i
+SYNC_ALERT_THRESHOLD = 3  # 同任务连续失败超此阈值即给持仓 user 推 sync_alert
+
+
 def _now_iso():
     """本地时间字符串,与历史表 datetime('now','localtime') 风格一致。"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -70,6 +76,47 @@ def _record_run(task_name, fn):
     return result, status, error
 
 
+def _retry_attempts(task_name, fn, retries, base_delay=RETRY_BASE_DELAY,
+                    sleep=time.sleep):
+    """执行至多 retries 次重试(不含首次),间隔递增,每次落新 task_run 行;命中 ok 即停。
+
+    间隔 = base_delay * i(i=1..retries)。sleep 可注入,便于测试。返回最终
+    (result, status, error) —— 全失败时为 (None, "fail", error)。
+    """
+    result, status, error = None, "fail", None
+    for i in range(1, retries + 1):
+        sleep(base_delay * i)
+        result, status, error = _record_run(task_name, fn)
+        if status == "ok":
+            break
+    return result, status, error
+
+
+def _run_with_retries(task_name, fn, retries=DEFAULT_RETRIES,
+                      base_delay=RETRY_BASE_DELAY, sleep=time.sleep):
+    """初始尝试 + 失败重试,每次尝试各落一行 task_run。返回最终 (result,status,error)。
+
+    同步执行(含 sleep);主要供测试直接驱动(重试成功/失败、间隔递增)。
+    """
+    result, status, error = _record_run(task_name, fn)
+    if status != "ok" and retries:
+        result, status, error = _retry_attempts(
+            task_name, fn, retries, base_delay, sleep)
+    return result, status, error
+
+
+def _maybe_retry(task_name, fn, retries):
+    """失败后在独立 daemon 线程里按间隔递增重试 retries 次,不阻塞调用方(M10C)。"""
+    if not retries:
+        return
+    threading.Thread(
+        target=_retry_attempts,
+        args=(task_name, fn, retries),
+        name=f"retry-{task_name}",
+        daemon=True,
+    ).start()
+
+
 def _default_sync():
     # 延迟导入,避免模块级引入抓取层(其可能触发 ssl 上下文构建)
     from backend.datasource.fund_list_sync import sync
@@ -84,13 +131,17 @@ def _fund_list_count():
         conn.close()
 
 
-def _safe_sync(sync_fn):
-    """执行一次同步,吞掉所有异常(仅日志),保证不影响调用方。结果落 task_run。"""
+def _safe_sync(sync_fn, retries=DEFAULT_RETRIES):
+    """执行一次同步,吞掉所有异常(仅日志),保证不影响调用方。结果落 task_run。
+
+    失败时在独立线程按间隔递增重试 retries 次,每次重试落新 task_run 行(M10C)。
+    """
     n, status, error = _record_run("fund_list_sync", sync_fn)
     if status == "ok":
         print(f"[scheduler] 全量列表同步完成,共 {n} 只基金。")
     else:
         print(f"[scheduler] 全量列表同步失败(不影响服务): {error}")
+        _maybe_retry("fund_list_sync", sync_fn, retries)
 
 
 def maybe_bootstrap_sync(seed_count=None, sync_fn=None, background=True):
@@ -141,13 +192,14 @@ def _refresh_holdings_nav():
         conn.close()
 
 
-def _safe_nav_refresh(nav_fn):
+def _safe_nav_refresh(nav_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("nav_refresh", nav_fn)
     if status == "ok":
         if n:
             print(f"[scheduler] 收盘净值回填完成,更新 {n} 只持仓基金。")
     else:
         print(f"[scheduler] 收盘净值回填失败(不影响服务): {error}")
+        _maybe_retry("nav_refresh", nav_fn, retries)
 
 
 def start_nav_refresh(interval_hours=12, nav_fn=None, run_now=True):
@@ -196,13 +248,14 @@ def _refresh_one_quote(code):
         conn.close()
 
 
-def _safe_quote_refresh(quote_fn):
+def _safe_quote_refresh(quote_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("quote_refresh", quote_fn)
     if status == "ok":
         if n:
             print(f"[scheduler] 盘中估值刷新完成,更新 {n} 只持仓基金。")
     else:
         print(f"[scheduler] 盘中估值刷新失败(不影响服务): {error}")
+        _maybe_retry("quote_refresh", quote_fn, retries)
 
 
 def start_quote_refresh(interval_seconds=60, quote_fn=None, run_now=True):
@@ -262,13 +315,14 @@ def _refresh_one_history(code):
         conn.close()
 
 
-def _safe_history_refresh(hist_fn):
+def _safe_history_refresh(hist_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("history_refresh", hist_fn)
     if status == "ok":
         if n:
             print(f"[scheduler] 历史净值刷新完成,更新 {n} 只持仓基金。")
     else:
         print(f"[scheduler] 历史净值刷新失败(不影响服务): {error}")
+        _maybe_retry("history_refresh", hist_fn, retries)
 
 
 def start_history_refresh(interval_hours=24, hist_fn=None, run_now=True):
@@ -329,13 +383,14 @@ def _refresh_tracked_profiles():
         conn.close()
 
 
-def _safe_profile_refresh(profile_fn):
+def _safe_profile_refresh(profile_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("profile_refresh", profile_fn)
     if status == "ok":
         if n:
             print(f"[scheduler] 基本面刷新完成,更新 {n} 只基金。")
     else:
         print(f"[scheduler] 基本面刷新失败(不影响服务): {error}")
+        _maybe_retry("profile_refresh", profile_fn, retries)
 
 
 def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):
@@ -486,14 +541,16 @@ def start_nav_gap_check(interval_hours=24, run_now=True):
 
 # ---- Session 过期清理:日更 daemon(M9-E) ----
 
-def _safe_session_purge():
+def _safe_session_purge(retries=DEFAULT_RETRIES):
     from backend import auth
-    n, status, error = _record_run("session_purge", auth.purge_expired_sessions)
+    purge_fn = auth.purge_expired_sessions
+    n, status, error = _record_run("session_purge", purge_fn)
     if status == "ok":
         if n:
             print(f"[scheduler] 过期 session 清理完成,删除 {n} 条。")
     else:
         print(f"[scheduler] 过期 session 清理失败(不影响服务): {error}")
+        _maybe_retry("session_purge", purge_fn, retries)
 
 
 def start_session_purge(interval_hours=24, run_now=True):
@@ -512,5 +569,139 @@ def start_session_purge(interval_hours=24, run_now=True):
             _safe_session_purge()
 
     t = threading.Thread(target=_loop, name="session-purge", daemon=True)
+    t.start()
+    return t
+
+
+# ---- 连续失败告警:抓取任务连续失败超阈值即给持仓 user 推 sync_alert(M10C) ----
+
+def _consecutive_fail_count(task_name, conn=None):
+    """从 task_run 末尾数连续 fail 行数(遇 ok / 空即停),上限取阈值。
+
+    只取最近 SYNC_ALERT_THRESHOLD 行,从最新向旧数连续 fail,遇到首个 ok 即停:
+    最近一次为 ok 即视为已恢复(0)。conn 可注入复用(供 API 查询),不传则自管连接。
+    """
+    own = conn is None
+    conn = None if own else conn
+    try:
+        if own:
+            conn = get_conn()
+        rows = conn.execute(
+            "SELECT status FROM task_run WHERE task_name=? "
+            "ORDER BY id DESC LIMIT ?",
+            (task_name, SYNC_ALERT_THRESHOLD),
+        ).fetchall()
+        count = 0
+        for r in rows:
+            if r[0] == "fail":
+                count += 1
+            else:
+                break  # 遇 ok,连续失败被打断
+        return count
+    except Exception:  # noqa: BLE001 —— 计数失败按 0 处理,不抛
+        return 0
+    finally:
+        if own and conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def _push_sync_alerts(task_name):
+    """连续失败超阈值时,给持仓受影响 user 推 kind=sync_alert 站内通知。
+
+    去重逻辑仿 _push_nav_gap_notifications:同 user + 任务名(存 fund_code 列)+
+    kind='sync_alert' + 未读(read_at IS NULL)则跳过,避免每次巡检刷屏。
+    受影响基金取该 user 的持仓 fund_code,合并写入 message。写入失败只日志,
+    不抛。返回本次新写入条数。
+    """
+    fails = _consecutive_fail_count(task_name)
+    if fails < SYNC_ALERT_THRESHOLD:
+        return 0
+    conn = None
+    pushed = 0
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT user_id, fund_code FROM holding "
+            "WHERE user_id IS NOT NULL AND fund_code IS NOT NULL "
+            "ORDER BY user_id, fund_code"
+        ).fetchall()
+        by_user = {}
+        for r in rows:
+            by_user.setdefault(r[0], []).append(r[1])
+        for uid, codes in by_user.items():
+            exists = conn.execute(
+                "SELECT 1 FROM notification WHERE user_id=? AND fund_code=? "
+                "AND kind='sync_alert' AND read_at IS NULL",
+                (uid, task_name),
+            ).fetchone()
+            if exists:
+                continue
+            shown = codes[:20]
+            tail = "" if len(codes) <= 20 else f" 等 {len(codes)} 只"
+            msg = (f"「{task_name}」连续失败 {fails} 次,受影响基金: "
+                   f"{', '.join(shown)}{tail}")
+            conn.execute(
+                "INSERT INTO notification(user_id,fund_code,kind,message,created_at) "
+                "VALUES(?,?,?,?,datetime('now','localtime'))",
+                (uid, task_name, "sync_alert", msg),
+            )
+            pushed += 1
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 —— 推送失败不能影响业务
+        print(f"[scheduler] sync_alert 推送失败({task_name}): "
+              f"{type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return pushed
+
+
+def _dispatch_alerts():
+    """巡检所有抓取任务,对连续失败超阈值的给持仓 user 推 sync_alert。
+
+    task_run 表里出现过的任务名各调一次 _push_sync_alerts(内部自判阈值 +
+    去重)。任务列表读取失败只日志、跳过本轮。
+    """
+    conn = None
+    names = []
+    try:
+        conn = get_conn()
+        names = [r[0] for r in conn.execute(
+            "SELECT DISTINCT task_name FROM task_run").fetchall()]
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 告警巡检任务列表读取失败: {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    for name in names:
+        _push_sync_alerts(name)
+
+
+def start_alert_dispatcher(interval_hours=6, run_now=True):
+    """启动连续失败告警巡检 daemon(默认 6h),返回该线程。
+
+    定期扫所有抓取任务,对连续失败超阈值的给持仓 user 推 sync_alert 站内通知
+    (同 user+任务未读告警去重,仿 _push_nav_gap_notifications)。仅应用内
+    notification,不做手机/Web Push(红线)。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _dispatch_alerts()
+        while True:
+            time.sleep(interval)
+            _dispatch_alerts()
+
+    t = threading.Thread(target=_loop, name="alert-dispatcher", daemon=True)
     t.start()
     return t
