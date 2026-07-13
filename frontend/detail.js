@@ -25,6 +25,7 @@ function renderDetail(view, code) {
       <button class="primary" id="d-add-btn" onclick="addToHoldings()">＋ 加自选</button>
     </div>
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
+    <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div class="d-chart-card">
       <div class="d-spans" id="d-spans">
         ${DETAIL_SPANS.map(s =>
@@ -48,7 +49,12 @@ async function loadDetail(chartOnly) {
     const d = await getJSON(
       "/api/fund/" + encodeURIComponent(_detailCode) + "?days=" + span.days
     );
-    if (!chartOnly) renderProfile(d.profile);
+    if (!chartOnly) {
+      renderProfile(d.profile);
+      getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/returns")
+        .then(ret => renderReturns(ret.periods))
+        .catch(() => { const b = $("#d-returns"); if (b) b.innerHTML = ""; });
+    }
     renderDetailChart(d.series || []);
   } catch {
     if (!chartOnly) $("#d-profile").innerHTML = `<div class="d-empty">基本面数据暂缺</div>`;
@@ -70,6 +76,20 @@ function renderProfile(p) {
       <div>近3月收益<b>${fmtPct(p.syl_3y)}</b></div>
       <div>近6月收益<b>${fmtPct(p.syl_6y)}</b></div>
       <div>近1月收益<b>${fmtPct(p.syl_1y)}</b></div>
+    </div>`;
+}
+
+function renderReturns(periods) {
+  const box = $("#d-returns");
+  if (!box || !periods) return;
+  const fmt = v => v == null ? "—" : `<span class="${cls(v)}">${sign(v)}%</span>`;
+  box.innerHTML = `
+    <div class="d-name">阶段收益<span class="fcode">基于历史净值只读计算</span></div>
+    <div class="d-grid">
+      <div>近1月<b>${fmt(periods.m1)}</b></div>
+      <div>近3月<b>${fmt(periods.m3)}</b></div>
+      <div>今年以来<b>${fmt(periods.ytd)}</b></div>
+      <div>成立以来<b>${fmt(periods.max)}</b></div>
     </div>`;
 }
 
