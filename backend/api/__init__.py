@@ -16,3 +16,4 @@ from backend.api import market; ALL_ROUTES += market.ROUTES  # noqa: E401,E402
 from backend.api import fund_detail; ALL_ROUTES += fund_detail.ROUTES
 from backend.api import transactions; ALL_ROUTES += transactions.ROUTES
 from backend.api import holdings_ext; ALL_ROUTES += holdings_ext.ROUTES
+from backend.api import sync_status; ALL_ROUTES += sync_status.ROUTES
