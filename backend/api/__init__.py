@@ -19,3 +19,5 @@ from backend.api import holdings_ext; ALL_ROUTES += holdings_ext.ROUTES
 from backend.api import sync_status; ALL_ROUTES += sync_status.ROUTES
 from backend.api import notifications; ALL_ROUTES += notifications.ROUTES
 from backend.api import returns; ALL_ROUTES += returns.ROUTES
+# M10B 线路 B 鉴权加固:登录审计只读接口(按 user_id 隔离,越权 404)
+from backend.api import login_audit; ALL_ROUTES += login_audit.ROUTES  # noqa: E401,E402
