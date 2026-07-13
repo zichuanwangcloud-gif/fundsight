@@ -52,3 +52,20 @@ def dispatch(routes, method, path, query=None, body=None, user_id=None):
             return result
         return (200, result)
     return None
+
+
+def rate_limit_guard(user_id, endpoint, check_fn=None):
+    """分发前限流中间件(独立函数,不改 dispatch)。
+
+    由 app.py 在 _current_user() 之后、分发之前调用。返回 None 表示放行;
+    返回 (429, obj) 表示超限,调用方据此回 429。未登录(user_id=None)不限流。
+    """
+    if user_id is None:
+        return None
+    fn = check_fn
+    if fn is None:
+        from backend import auth
+        fn = auth.check_rate_limit
+    if not fn(user_id, endpoint):
+        return (429, {"error": "rate limit exceeded", "retry_after": 60})
+    return None

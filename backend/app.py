@@ -33,7 +33,7 @@ from backend.scheduler import (  # noqa: E402
 )
 from backend import auth  # noqa: E402
 from backend.api import ALL_ROUTES  # noqa: E402
-from backend.api._router import dispatch  # noqa: E402
+from backend.api._router import dispatch, rate_limit_guard  # noqa: E402
 
 SESSION_COOKIE = "fs_session"
 # HTTPS 部署时设 FUNDSIGHT_SECURE_COOKIE=1 给会话 Cookie 追加 Secure 标志
@@ -305,6 +305,29 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return uid
 
+    def _client_ip(self):
+        """客户端 IP:X-Forwarded-0(反代场景)优先,否则 client_address。"""
+        xff = self.headers.get("X-Forwarded-For", "")
+        if xff:
+            return xff.split(",")[0].strip()
+        return self.client_address[0] if self.client_address else ""
+
+    def _rate_limited(self, path):
+        """分发前限流检查(M10B-B1):超限回 429 并返回 True,否则返回 False。
+
+        按 user_id + 端点 限频(60 次/分,宽松自用级)。未登录端点(login/register)
+        不限流:user_id 为 None 时放行。
+        """
+        uid = self._current_user()
+        if uid is None:
+            return False
+        blocked = rate_limit_guard(uid, path)
+        if blocked is None:
+            return False
+        code, obj = blocked
+        self._json(obj, code)
+        return True
+
     def _session_cookie_header(self, token, max_age=30 * 24 * 3600):
         # HTTPS 部署设 FUNDSIGHT_SECURE_COOKIE=1 即追加 Secure(本地 http 不开)。
         secure = "; Secure" if SECURE_COOKIE else ""
@@ -332,6 +355,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self._path())
         if not u.path.startswith("/api/"):
             return self._serve_static(u.path)
+        if self._rate_limited(u.path):
+            return
         if u.path == "/api/me":
             uid = self._require_auth()
             if uid is None:
@@ -363,12 +388,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         p = urlparse(self._path()).path
+        if self._rate_limited(p):
+            return
         if p == "/api/register":
             return self._handle_register()
         if p == "/api/login":
             return self._handle_login()
         if p == "/api/logout":
             return self._handle_logout()
+        if p == "/api/change-password":
+            return self._handle_change_password()
         if p == "/api/holdings":
             uid = self._require_auth()
             if uid is None:
@@ -381,6 +410,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         p = urlparse(self._path()).path
+        if self._rate_limited(p):
+            return
         if p.startswith("/api/holdings/"):
             uid = self._require_auth()
             if uid is None:
@@ -394,6 +425,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         p = urlparse(self._path()).path
+        if self._rate_limited(p):
+            return
         if p.startswith("/api/holdings/"):
             uid = self._require_auth()
             if uid is None:
@@ -438,16 +471,48 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_login(self):
         data = self._read_json()
-        uid = auth.authenticate(data.get("username"), data.get("password") or "")
+        username = data.get("username") or ""
+        password = data.get("password") or ""
+        uid = auth.authenticate(username, password)
+        ip = self._client_ip()
+        ua = self.headers.get("User-Agent", "")
         if uid is None:
+            # 失败也落审计:未知用户 user_id 记 NULL
+            auth.record_login_audit(auth.get_user_id(username), ip, ua, False)
             return self._json({"error": "用户名或密码错误"}, 401)
+        auth.record_login_audit(uid, ip, ua, True)
         token = auth.create_session(uid)
         self._json({"username": auth.get_username(uid)},
                    extra_headers=[self._session_cookie_header(token)])
 
     def _handle_logout(self):
-        auth.delete_session(self._session_token())
+        # M10B-B2:登出使该用户**所有**存量 session 失效(全设备下线),
+        # 而非仅删当前 token。
+        token = self._session_token()
+        uid = auth.get_user_by_token(token)
+        if uid is not None:
+            auth.revoke_user_sessions(uid)
         self._json({"ok": True}, extra_headers=[self._clear_cookie_header()])
+
+    def _handle_change_password(self):
+        """改密:校验旧密码 → 重设 → 吊销该用户所有存量 session → 重签当前会话。
+
+        旧 token 失效(B2);当前设备拿到新 token 保持登录。
+        """
+        uid = self._require_auth()
+        if uid is None:
+            return
+        data = self._read_json()
+        old = data.get("old_password") or ""
+        new = data.get("new_password") or ""
+        if not new:
+            return self._json({"error": "新密码不能为空"}, 400)
+        if not auth.change_password(uid, old, new):
+            return self._json({"error": "旧密码不正确"}, 401)
+        # 改密已吊销所有 session(含当前);给当前设备重签,保持登录。
+        token = auth.create_session(uid)
+        self._json({"ok": True, "username": auth.get_username(uid), "revoked_sessions": True},
+                   extra_headers=[self._session_cookie_header(token)])
 
     def _serve_static(self, path):
         # "/" → index.html;其余按 basename 在 frontend/ 下找,白名单扩展防穿越
@@ -488,6 +553,8 @@ def main():
     start_nav_gap_check(interval_hours=24)
     # 过期 session 清理:日更删除 expires_at 过期的 token 行,防 session 表膨胀(M9-E)。
     start_session_purge(interval_hours=24)
+    # M10B 限流状态清理:日更删除已结束窗口的 rate_limit_state 行,防表膨胀。
+    auth.start_rate_limit_cleanup(interval_hours=24)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

@@ -132,6 +132,27 @@ CREATE TABLE IF NOT EXISTS notification (
     read_at     TEXT              -- datetime('now','localtime'),NULL=未读
 );
 CREATE INDEX IF NOT EXISTS idx_notification_user_read ON notification(user_id, read_at);
+
+-- M10B 鉴权加固:登录审计 + 接口限流状态。
+-- login_audit:记录登录成功/失败(user_id/ip/ua/ok/created_at),按 user_id 隔离只读。
+-- rate_limit_state:限流计数落盘兜底,防重启重置(内存计数为主)。各窗口结束由
+-- start_rate_limit_cleanup 日更清理,防膨胀。
+CREATE TABLE IF NOT EXISTS login_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER,              -- 失败且未知用户时 NULL
+    ip          TEXT,
+    ua          TEXT,
+    ok          INTEGER NOT NULL,     -- 1 成功 / 0 失败
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_login_audit_user ON login_audit(user_id, id);
+CREATE TABLE IF NOT EXISTS rate_limit_state (
+    user_id      INTEGER NOT NULL,
+    endpoint     TEXT NOT NULL,
+    window_start TEXT NOT NULL,       -- 窗口起点(epoch 整数的文本),便于清理时比较
+    count        INTEGER NOT NULL,
+    PRIMARY KEY (user_id, endpoint, window_start)
+);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
