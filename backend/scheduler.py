@@ -12,7 +12,7 @@
 """
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from backend.models.db import get_conn, SEED_FUNDS
 
@@ -22,27 +22,11 @@ def _now_iso():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _record_run(task_name, fn):
-    """执行 fn() 并把结果落 task_run 表;吞掉 fn 的异常(仅日志),保证不影响调用方。
+def _insert_run(task_name, started, finished, duration_ms, status, affected, error):
+    """直接写一条 task_run 记录(供 _record_run 与断点检测等复用)。
 
-    返回 (result, status, error):fn() 的返回值(失败为 None) / 'ok'|'fail' /
-    失败描述 "ExcType: msg"(成功为 None)。task_run 写入本身失败也只打日志,
-    绝不向上冒泡。
+    写入本身失败只打日志,绝不向上冒泡。
     """
-    started = _now_iso()
-    t0 = time.monotonic()
-    result, status, error, affected = None, "ok", None, None
-    try:
-        result = fn()
-        if isinstance(result, bool):  # bool 不算条数,转 int 后再判
-            result = int(result)
-        if isinstance(result, int):
-            affected = result
-    except Exception as e:  # noqa: BLE001 —— 后台任务必须兜住一切
-        status = "fail"
-        error = f"{type(e).__name__}: {e}"
-    finished = _now_iso()
-    duration_ms = int((time.monotonic() - t0) * 1000)
     conn = None
     try:
         conn = get_conn()
@@ -60,6 +44,29 @@ def _record_run(task_name, fn):
                 conn.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _record_run(task_name, fn):
+    """执行 fn() 并把结果落 task_run 表;吞掉 fn 的异常(仅日志),保证不影响调用方。
+
+    返回 (result, status, error):fn() 的返回值(失败为 None) / 'ok'|'fail' /
+    失败描述 "ExcType: msg"(成功为 None)。
+    """
+    started = _now_iso()
+    t0 = time.monotonic()
+    result, status, error, affected = None, "ok", None, None
+    try:
+        result = fn()
+        if isinstance(result, bool):  # bool 不算条数,转 int 后再判
+            result = int(result)
+        if isinstance(result, int):
+            affected = result
+    except Exception as e:  # noqa: BLE001 —— 后台任务必须兜住一切
+        status = "fail"
+        error = f"{type(e).__name__}: {e}"
+    finished = _now_iso()
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    _insert_run(task_name, started, finished, duration_ms, status, affected, error)
     return result, status, error
 
 
@@ -348,5 +355,90 @@ def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):
             _safe_profile_refresh(profile_fn)
 
     t = threading.Thread(target=_loop, name="profile-refresh", daemon=True)
+    t.start()
+    return t
+
+
+# ---- 净值断点检测:持仓基金净值连续缺失即告警(M9-C) ----
+
+NAV_GAP_THRESHOLD_DAYS = 5  # 自然日,覆盖周末;max(nav_date) 距今超过即视为断点
+
+
+def _detect_nav_gaps(threshold_days=NAV_GAP_THRESHOLD_DAYS):
+    """检测持仓基金净值断点:max(nav_date) 距今 > threshold_days 或无记录。
+
+    检测结果写入 task_run(task_name='nav_gap_check'):有缺失记 fail +
+    error=缺失代码列表;无缺失记 ok。检测本身异常也只记 fail,不抛。
+    返回缺失基金数。
+    """
+    started = _now_iso()
+    t0 = time.monotonic()
+    status, error, stale = "ok", None, []
+    conn = None
+    try:
+        conn = get_conn()
+        codes = [r[0] for r in conn.execute(
+            "SELECT DISTINCT fund_code FROM holding")]
+        if codes:
+            today = datetime.now().date()
+            cutoff = today - timedelta(days=threshold_days)
+            placeholders = ",".join("?" * len(codes))
+            rows = conn.execute(
+                f"SELECT fund_code, MAX(nav_date) FROM fund_nav_history "
+                f"WHERE fund_code IN ({placeholders}) GROUP BY fund_code",
+                codes,
+            ).fetchall()
+            last_by_code = {r[0]: r[1] for r in rows}
+            for code in codes:
+                last = last_by_code.get(code)
+                if not last:  # 从无净值记录
+                    stale.append(code)
+                    continue
+                try:
+                    d = datetime.strptime(last, "%Y-%m-%d").date()
+                except ValueError:  # 日期格式异常,跳过不误报
+                    continue
+                if d < cutoff:
+                    stale.append(code)
+    except Exception as e:  # noqa: BLE001 —— 检测失败不能影响服务
+        status = "fail"
+        error = f"{type(e).__name__}: {e}"
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    affected = len(stale)
+    if stale:
+        status = "fail"
+        tail = " ..." if len(stale) > 50 else ""
+        error = "净值断点: " + ", ".join(stale[:50]) + tail
+    finished = _now_iso()
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    _insert_run("nav_gap_check", started, finished, duration_ms, status, affected, error)
+    if stale:
+        print(f"[scheduler] 净值断点检测告警: {len(stale)} 只持仓基金净值缺失 "
+              f"({', '.join(stale[:10])})")
+    return len(stale)
+
+
+def start_nav_gap_check(interval_hours=24, run_now=True):
+    """启动净值断点检测 daemon 线程(日更),返回该线程。
+
+    检测持仓基金 nav_history 的 max(nav_date) 距今是否超过阈值(默认 5 天,
+    覆盖周末)。有缺失记 task_run fail + error=代码列表,无缺失记 ok;
+    前端「系统状态」页据此标红告警。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _detect_nav_gaps()
+        while True:
+            time.sleep(interval)
+            _detect_nav_gaps()
+
+    t = threading.Thread(target=_loop, name="nav-gap-check", daemon=True)
     t.start()
     return t
