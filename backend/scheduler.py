@@ -6,11 +6,61 @@
 
 - maybe_bootstrap_sync(): 启动时若 fund_list 仍是初始种子态,后台拉一次全量。
 - start_periodic_sync():  daemon 线程,按周期(默认 7 天)刷新全量列表。
+
+可观测性(M9-A):每次后台任务经 _record_run() 落 task_run 表,记录开始/结束/
+耗时/状态(ok|fail)/处理条数/错误信息,供 /api/admin/sync-status 只读排查。
 """
 import threading
 import time
+from datetime import datetime
 
 from backend.models.db import get_conn, SEED_FUNDS
+
+
+def _now_iso():
+    """本地时间字符串,与历史表 datetime('now','localtime') 风格一致。"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _record_run(task_name, fn):
+    """执行 fn() 并把结果落 task_run 表;吞掉 fn 的异常(仅日志),保证不影响调用方。
+
+    返回 (result, status, error):fn() 的返回值(失败为 None) / 'ok'|'fail' /
+    失败描述 "ExcType: msg"(成功为 None)。task_run 写入本身失败也只打日志,
+    绝不向上冒泡。
+    """
+    started = _now_iso()
+    t0 = time.monotonic()
+    result, status, error, affected = None, "ok", None, None
+    try:
+        result = fn()
+        if isinstance(result, bool):  # bool 不算条数,转 int 后再判
+            result = int(result)
+        if isinstance(result, int):
+            affected = result
+    except Exception as e:  # noqa: BLE001 —— 后台任务必须兜住一切
+        status = "fail"
+        error = f"{type(e).__name__}: {e}"
+    finished = _now_iso()
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    conn = None
+    try:
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO task_run(task_name,started_at,finished_at,duration_ms,"
+            "status,affected,error) VALUES(?,?,?,?,?,?,?)",
+            (task_name, started, finished, duration_ms, status, affected, error),
+        )
+        conn.commit()
+    except Exception as e:  # noqa: BLE001 —— 记录失败不能影响业务
+        print(f"[scheduler] task_run 写入失败({task_name}): {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return result, status, error
 
 
 def _default_sync():
@@ -28,12 +78,12 @@ def _fund_list_count():
 
 
 def _safe_sync(sync_fn):
-    """执行一次同步,吞掉所有异常(仅日志),保证不影响调用方。"""
-    try:
-        n = sync_fn()
+    """执行一次同步,吞掉所有异常(仅日志),保证不影响调用方。结果落 task_run。"""
+    n, status, error = _record_run("fund_list_sync", sync_fn)
+    if status == "ok":
         print(f"[scheduler] 全量列表同步完成,共 {n} 只基金。")
-    except Exception as e:  # noqa: BLE001 —— 后台任务必须兜住一切
-        print(f"[scheduler] 全量列表同步失败(不影响服务): {type(e).__name__} {e}")
+    else:
+        print(f"[scheduler] 全量列表同步失败(不影响服务): {error}")
 
 
 def maybe_bootstrap_sync(seed_count=None, sync_fn=None, background=True):
@@ -85,12 +135,12 @@ def _refresh_holdings_nav():
 
 
 def _safe_nav_refresh(nav_fn):
-    try:
-        n = nav_fn()
+    n, status, error = _record_run("nav_refresh", nav_fn)
+    if status == "ok":
         if n:
             print(f"[scheduler] 收盘净值回填完成,更新 {n} 只持仓基金。")
-    except Exception as e:  # noqa: BLE001
-        print(f"[scheduler] 收盘净值回填失败(不影响服务): {type(e).__name__} {e}")
+    else:
+        print(f"[scheduler] 收盘净值回填失败(不影响服务): {error}")
 
 
 def start_nav_refresh(interval_hours=12, nav_fn=None, run_now=True):
@@ -140,12 +190,12 @@ def _refresh_one_quote(code):
 
 
 def _safe_quote_refresh(quote_fn):
-    try:
-        n = quote_fn()
+    n, status, error = _record_run("quote_refresh", quote_fn)
+    if status == "ok":
         if n:
             print(f"[scheduler] 盘中估值刷新完成,更新 {n} 只持仓基金。")
-    except Exception as e:  # noqa: BLE001
-        print(f"[scheduler] 盘中估值刷新失败(不影响服务): {type(e).__name__} {e}")
+    else:
+        print(f"[scheduler] 盘中估值刷新失败(不影响服务): {error}")
 
 
 def start_quote_refresh(interval_seconds=60, quote_fn=None, run_now=True):
@@ -172,10 +222,9 @@ def trigger_quote_for(code, one_fn=None):
     one_fn = one_fn or _refresh_one_quote
 
     def _run():
-        try:
-            one_fn(code)
-        except Exception as e:  # noqa: BLE001
-            print(f"[scheduler] 新增持仓估值拉取失败 {code}: {type(e).__name__} {e}")
+        _, status, error = _record_run("quote_one", lambda: one_fn(code))
+        if status != "ok":
+            print(f"[scheduler] 新增持仓估值拉取失败 {code}: {error}")
 
     t = threading.Thread(target=_run, name=f"quote-one-{code}", daemon=True)
     t.start()
@@ -207,12 +256,12 @@ def _refresh_one_history(code):
 
 
 def _safe_history_refresh(hist_fn):
-    try:
-        n = hist_fn()
+    n, status, error = _record_run("history_refresh", hist_fn)
+    if status == "ok":
         if n:
             print(f"[scheduler] 历史净值刷新完成,更新 {n} 只持仓基金。")
-    except Exception as e:  # noqa: BLE001
-        print(f"[scheduler] 历史净值刷新失败(不影响服务): {type(e).__name__} {e}")
+    else:
+        print(f"[scheduler] 历史净值刷新失败(不影响服务): {error}")
 
 
 def start_history_refresh(interval_hours=24, hist_fn=None, run_now=True):
@@ -237,10 +286,9 @@ def trigger_history_for(code, one_fn=None):
     one_fn = one_fn or _refresh_one_history
 
     def _run():
-        try:
-            one_fn(code)
-        except Exception as e:  # noqa: BLE001
-            print(f"[scheduler] 新增持仓历史拉取失败 {code}: {type(e).__name__} {e}")
+        _, status, error = _record_run("history_one", lambda: one_fn(code))
+        if status != "ok":
+            print(f"[scheduler] 新增持仓历史拉取失败 {code}: {error}")
 
     t = threading.Thread(target=_run, name=f"history-one-{code}", daemon=True)
     t.start()
@@ -275,12 +323,12 @@ def _refresh_tracked_profiles():
 
 
 def _safe_profile_refresh(profile_fn):
-    try:
-        n = profile_fn()
+    n, status, error = _record_run("profile_refresh", profile_fn)
+    if status == "ok":
         if n:
             print(f"[scheduler] 基本面刷新完成,更新 {n} 只基金。")
-    except Exception as e:  # noqa: BLE001
-        print(f"[scheduler] 基本面刷新失败(不影响服务): {type(e).__name__} {e}")
+    else:
+        print(f"[scheduler] 基本面刷新失败(不影响服务): {error}")
 
 
 def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):

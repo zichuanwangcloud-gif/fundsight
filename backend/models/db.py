@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS fund_transaction (
 );
 CREATE INDEX IF NOT EXISTS idx_fund_transaction_user_code
     ON fund_transaction(user_id, fund_code);
+
+-- 抓取任务执行记录:可观测性用,各 _safe_* 包装器写入,业务层只读(M9-A)
+CREATE TABLE IF NOT EXISTS task_run (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_name   TEXT NOT NULL,    -- fund_list_sync | nav_refresh | quote_refresh | history_refresh | profile_refresh
+    started_at  TEXT,             -- datetime('now','localtime')
+    finished_at TEXT,
+    duration_ms INTEGER,          -- 耗时(毫秒)
+    status      TEXT,             -- ok | fail
+    affected    INTEGER,          -- 成功处理的条数(各 sync/refresh 的返回值)
+    error       TEXT              -- 失败时 "ExcType: msg",成功为 NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_run_name_time ON task_run(task_name, started_at);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
