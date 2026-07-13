@@ -36,6 +36,19 @@
 - 拆分并行任务时，保证各 worktree 修改的**文件集不相交**，避免合并冲突。
 - 每个 worktree 完成后先自测、提交到独立分支，经 review 再合并；用完用 `ExitWorktree` 或 `git worktree remove` 清理。
 
+### 📦 发布规范（Release）
+
+- **版本号严格递增，禁止跳号**：遵循语义化版本 `MAJOR.MINOR.PATCH`（如 `v0.9.0`），每个新 release 必须紧接上一个 release 递增，**不允许跳跃**。
+  - 新增业务功能 → MINOR +1：`v0.9.0` → `v0.10.0`（注意 0.10 > 0.9，非 0.1）。
+  - 仅修 bug / 小优化 → PATCH +1：`v0.9.0` → `v0.9.1`。
+  - 发布前先 `git fetch && git tag --sort=-v:refname | head` 查最新 tag，以上一个正式 release 的版本为基准递增，不复用、不回退、不跳号。
+  - **反例（已发生）**：`v0.1.0` 直接跳到 `v0.9.0`，中间 v0.2.0~v0.8.0 全缺，属错误示范，不得再犯。
+- **Release notes 面向业务，禁用开发术语**：
+  - 只写用户能感知的改动，句式如「上线了 X 功能」「修复了 Y 问题」「优化了 Z 体验」。
+  - **严禁**出现：里程碑/任务代号（M2、M9、M10B）、模块文件名（`auth.py`、`_router.py`）、技术动词（重构/refactor、迁移/migrate、TDD、PR 编号、commit hash）、内部架构词（限流中间件、SQLite 兜底、daemon）。
+  - 业务功能用普通用户语言转述：如「改密后自动退出其他设备」「登录记录可自查」「接口防刷保护」——而非「revoke_user_sessions 吊销 session」。
+- 发布动作：从最新 `main` 切 tag → `gh release create vX.Y.Z --title " vX.Y.Z <一句话主题>" --notes "..."`；tag 与 release 同名同序号；不直接 push tag 到 main（随 release 一并创建）。
+
 ## 项目约定
 
 - **零第三方依赖优先**：后端用 Python 标准库（`http.server` + `sqlite3`）；akshare 等为可选依赖，缺失时须优雅降级不崩。
