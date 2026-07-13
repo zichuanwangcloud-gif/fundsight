@@ -23,3 +23,12 @@
          border-radius: 6px; }
 .badge.ok { background: #e7f7ee; color: #16a34a; }
 .badge.fail { background: #fdecec; color: #e0483d; }
+
+/* 告警区:连续失败未恢复任务(M10C) */
+.admin-alerts { display: flex; flex-direction: column; gap: 10px; }
+.alert-item { background: #fff5f5; border: 1px solid #f3c9c6; border-left: 3px solid #e0483d;
+              border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.alert-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.alert-task { font-weight: 600; font-size: 13px; color: #2c3344; }
+.alert-funds { font-size: 13px; color: #46506a; word-break: break-all; }
+.alert-err { margin-top: 6px; max-width: none; white-space: normal; }

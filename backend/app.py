@@ -30,6 +30,7 @@ from backend.scheduler import (  # noqa: E402
     start_profile_refresh,
     start_nav_gap_check,
     start_session_purge,
+    start_alert_dispatcher,
 )
 from backend import auth  # noqa: E402
 from backend.api import ALL_ROUTES  # noqa: E402
@@ -555,6 +556,8 @@ def main():
     start_session_purge(interval_hours=24)
     # M10B 限流状态清理:日更删除已结束窗口的 rate_limit_state 行,防表膨胀。
     auth.start_rate_limit_cleanup(interval_hours=24)
+    # 连续失败告警巡检:6h 扫一次抓取任务,连续失败超阈值即给持仓 user 推 sync_alert(M10C)。
+    start_alert_dispatcher(interval_hours=6)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

@@ -96,7 +96,8 @@ class TestSafeSyncWritesTaskRun(_TmpDbMixin, unittest.TestCase):
         def boom():
             raise RuntimeError("nope")
 
-        scheduler._safe_sync(boom)
+        # retries=0:本测试只验证失败落库,重试行为由 test_sync_alert.py 覆盖
+        scheduler._safe_sync(boom, retries=0)
         conn = sqlite3.connect(self.path)
         row = conn.execute("SELECT status,error FROM task_run").fetchone()
         conn.close()
