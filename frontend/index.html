@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/detail.css">
 <link rel="stylesheet" href="/transactions.css">
 <link rel="stylesheet" href="/portfolio.css">
+<link rel="stylesheet" href="/admin.css">
 </head>
 <body>
   <!-- 登录 / 注册门控(未登录时覆盖全屏) -->
@@ -40,6 +41,7 @@
   <nav class="tabs">
     <div class="tab" data-key="market" onclick="location.hash='#/market'">基金市场</div>
     <div class="tab" data-key="portfolio" onclick="location.hash='#/portfolio'">我的持仓</div>
+    <div class="tab" data-key="admin" onclick="location.hash='#/admin'">系统状态</div>
   </nav>
 
   <div id="view"></div>
@@ -53,6 +55,7 @@
   <script src="/market.js"></script>
   <script src="/detail.js"></script>
   <script src="/transactions.js"></script>
+  <script src="/admin.js"></script>
   <script src="/auth.js"></script>
 </body>
 </html>
