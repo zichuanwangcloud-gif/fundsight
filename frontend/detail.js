@@ -11,10 +11,13 @@ const DETAIL_SPANS = [
 
 let _detailCode = null;
 let _detailSpan = "90";
+let _intradayTimer = null;  // 今日实时涨幅折线轮询 timer(盘中 30s,收盘停)
 
 function renderDetail(view, code) {
   _detailCode = code;
   _detailSpan = "90";
+  // 切回详情页重新渲染:先停上一只基金的轮询,避免跨基金串数据
+  if (_intradayTimer) { clearInterval(_intradayTimer); _intradayTimer = null; }
   if (!code) {
     view.innerHTML = `<div class="placeholder">缺少基金代码</div>`;
     return;
@@ -25,6 +28,7 @@ function renderDetail(view, code) {
       <button class="primary" id="d-add-btn" onclick="addToHoldings()">＋ 加自选</button>
     </div>
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
+    <div id="d-intraday" class="d-chart-card"><div class="d-loading">实时涨幅加载中…</div></div>
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div id="d-cost-curve" class="d-chart-card" hidden><div class="d-loading">成本曲线加载中…</div></div>
     <div id="d-attribution" class="d-chart-card" hidden><div class="d-loading">归因加载中…</div></div>
@@ -37,6 +41,7 @@ function renderDetail(view, code) {
       <div id="d-chart"><div class="d-loading">加载中…</div></div>
     </div>`;
   loadDetail();
+  loadIntraday();
 }
 
 function switchSpan(key) {
@@ -296,6 +301,76 @@ async function loadAttribution() {
     box.hidden = false;
     box.innerHTML = `<div class="d-name">阶段收益归因</div><div class="d-empty">归因数据暂缺</div>`;
   }
+}
+
+// 今日盘中实时涨幅折线 —— 纵轴 gszzl(估算涨跌幅%),零轴参考线,红涨绿跌。
+// 盘中每 30s 轮询延伸;收盘停止轮询,图保留今日全天数据直到次日开盘。
+async function loadIntraday() {
+  const box = $("#d-intraday");
+  if (!box) return;
+  try {
+    const d = await getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/intraday");
+    renderIntradayChart(d);
+  } catch {
+    box.innerHTML = `<div class="d-name">今日实时涨幅</div><div class="d-empty">数据暂缺</div>`;
+  }
+}
+
+function renderIntradayChart(d) {
+  const box = $("#d-intraday");
+  if (!box) return;
+  const ticks = (d && d.ticks) || [];
+  const open = !!(d && d.market_open);
+  const tag = open
+    ? '<span class="d-intraday-tag live">盘中实时</span>'
+    : '<span class="d-intraday-tag closed">已收盘</span>';
+  box.innerHTML = `<div class="d-name">今日实时涨幅 ${tag}</div>${intradaySvg(ticks, d)}`;
+  // 盘中开轮询;收盘保持定格,不再轮询(图一直展示到次日开盘)
+  if (open && !_intradayTimer) {
+    _intradayTimer = setInterval(loadIntraday, 30000);
+  } else if (!open && _intradayTimer) {
+    clearInterval(_intradayTimer);
+    _intradayTimer = null;
+  }
+}
+
+function intradaySvg(ticks, d) {
+  if (!ticks || ticks.length < 1) {
+    const hint = (d && d.market_open) ? "今日暂无估值点,开盘后自动更新" : "今日暂无盘中估值数据";
+    return `<div class="d-empty">${hint}</div>`;
+  }
+  const pts = ticks.filter(t => t.gszzl != null);
+  if (pts.length < 1) return `<div class="d-empty">估值数据不足</div>`;
+  const W = 640, H = 200, padX = 10, padTop = 14, padBottom = 30;
+  const h = H - padTop - padBottom;
+  const n = pts.length;
+  const maxAbs = Math.max(...pts.map(t => Math.abs(t.gszzl)), 0.5);  // 至少 ±0.5% 美观
+  const yMin = -maxAbs, yMax = maxAbs, span = yMax - yMin;
+  const xAt = i => padX + (W - 2 * padX) * (n === 1 ? 0.5 : i / (n - 1));
+  const yAt = v => padTop + h * (1 - (v - yMin) / span);
+  const zeroY = yAt(0);
+  const last = pts[n - 1].gszzl;
+  const color = last >= 0 ? "#e0483d" : "#16a34a";
+  const linePts = pts.map((t, i) => `${xAt(i).toFixed(1)},${yAt(t.gszzl).toFixed(1)}`).join(" ");
+  const hi = Math.max(...pts.map(t => t.gszzl));
+  const lo = Math.min(...pts.map(t => t.gszzl));
+  const fmtPct = v => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+  // 最新点高亮
+  const dot = `<circle cx="${xAt(n-1).toFixed(1)}" cy="${yAt(last).toFixed(1)}" r="3.4" fill="${color}"/>`;
+  // 首尾时间标签
+  const t0 = pts[0].quote_time || "";
+  const t1 = pts[n-1].quote_time || "";
+  return `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="d-chart-svg">
+      <line x1="0" y1="${zeroY.toFixed(1)}" x2="${W}" y2="${zeroY.toFixed(1)}" stroke="#e2e6ee" stroke-width="1" stroke-dasharray="4 3"/>
+      <polyline fill="none" stroke="${color}" stroke-width="1.8" points="${linePts}" stroke-linejoin="round"/>
+      ${dot}
+      <text x="${padX}" y="${(H-8).toFixed(1)}" font-size="9" fill="#a0a8b8">${t0.slice(0,5)}</text>
+      <text x="${(W-padX).toFixed(1)}" y="${(H-8).toFixed(1)}" font-size="9" fill="#a0a8b8" text-anchor="end">${t1.slice(0,5)}</text>
+    </svg>
+    <div class="d-chart-foot">
+      <span class="d-chart-lbl ${cls(last)}">最新 ${sign(last)}%</span>
+      <span class="d-chart-legend">最高 ${fmtPct(hi)} · 最低 ${fmtPct(lo)} · 零轴虚线</span>
+    </div>`;
 }
 
 registerPage("fund", renderDetail);

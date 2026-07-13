@@ -14,6 +14,7 @@ ALL_ROUTES = []
 # 线路 C 交易流水: from backend.api import transactions; ALL_ROUTES += transactions.ROUTES
 from backend.api import market; ALL_ROUTES += market.ROUTES  # noqa: E401,E402
 from backend.api import fund_detail; ALL_ROUTES += fund_detail.ROUTES
+from backend.api import intraday; ALL_ROUTES += intraday.ROUTES
 from backend.api import transactions; ALL_ROUTES += transactions.ROUTES
 from backend.api import holdings_ext; ALL_ROUTES += holdings_ext.ROUTES
 from backend.api import sync_status; ALL_ROUTES += sync_status.ROUTES

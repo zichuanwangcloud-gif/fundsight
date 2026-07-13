@@ -8,6 +8,8 @@ GET /api/fund/{code}?days=180
 仅当两张缓存表对该基金都完全没有数据时,才触发一次低频按需抓取并落库,
 随后照常只读返回 —— 抓取仍收敛在 backend/datasource/,这里只是「首次访问兜底」。
 """
+from datetime import datetime
+
 from backend.models.db import get_conn
 
 DEFAULT_DAYS = 180
@@ -43,6 +45,27 @@ def _ensure_cached(conn, code):
     refresh_nav_history(conn, [code])
 
 
+def _ensure_intraday_seed(conn, code):
+    """今日无该基金盘中时序时,后台触发一次按需采集(不阻塞响应)。
+
+    市场页基金不在持仓里、后台 quote_refresh 尚未采到它 —— 用户点开详情时
+    若今日 fund_quote_tick 无记录,触发 trigger_quote_for 补首个点,几秒后
+    前端 30s 轮询即见数据,之后后台 60s 周期继续采。表缺失(tick 未建)降级静默。
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM fund_quote_tick WHERE fund_code=? AND quote_date=? LIMIT 1",
+            (code, today),
+        ).fetchone()
+    except Exception:  # noqa: BLE001 —— 表缺失等,静默降级
+        return
+    if row:
+        return
+    from backend.scheduler import trigger_quote_for
+    trigger_quote_for(code)
+
+
 def get_fund_detail(ctx):
     code = (ctx.params.get("code") or "").strip()
     if not code:
@@ -61,6 +84,8 @@ def get_fund_detail(ctx):
             _ensure_cached(conn, code)
             profile = _read_profile(conn, code)
             series = _read_series(conn, code, days)
+        # 今日盘中时序缺失则后台补采(不阻塞,前端轮询即见)
+        _ensure_intraday_seed(conn, code)
         return {"profile": profile, "series": series}
     finally:
         conn.close()

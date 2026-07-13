@@ -203,6 +203,11 @@ class TestGetFundDetail(unittest.TestCase):
         self._orig = db_mod.DB_PATH
         db_mod.DB_PATH = self.path
         db_mod.init_db(with_seed=False)
+        # _ensure_intraday_seed 今日 tick 为空时会触发后台 trigger_quote_for → 真实网络,
+        # 单测隔离:patch 掉,默认返回 None(无副作用)。
+        self._tq = patch("backend.scheduler.trigger_quote_for")
+        self._tq.start()
+        self.addCleanup(self._tq.stop)
 
     def tearDown(self):
         db_mod.DB_PATH = self._orig

@@ -105,6 +105,7 @@ function renderList() {
         <span class="mkt-code">${it.fund_code}</span>
         <span class="mkt-type">${it.fund_type || ""}</span>
       </div>
+      <a class="mkt-detail" href="#/fund/${it.fund_code}">详情 →</a>
       ${held
         ? `<span class="mkt-held">已自选 ✓</span>`
         : `<button class="mkt-add" data-code="${it.fund_code}">加自选</button>`}

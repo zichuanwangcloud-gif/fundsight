@@ -225,12 +225,48 @@ def start_nav_refresh(interval_hours=12, nav_fn=None, run_now=True):
 
 # ---- 盘中估值:后台定时刷新，业务层只读缓存（M6） ----
 
+def _quote_target_codes(conn):
+    """盘中估值刷新目标 = 持仓基金 ∪ 今日已采时序基金 ∪ 被查过详情基金(profile)。
+
+    今日已采基金取自 fund_quote_tick 当日记录 —— 用户点开过的基金会被持续采样,
+    次日按 quote_date 自然清零重新累计。被查详情基金取自 fund_profile 已有记录
+    (详情首次访问由 fund_detail._ensure_cached 兜底入库)。
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    codes = set()
+    codes.update(r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding"))
+    try:  # fund_quote_tick 表理论上由 init_db 建好,旧库兜底
+        codes.update(r[0] for r in conn.execute(
+            "SELECT DISTINCT fund_code FROM fund_quote_tick WHERE quote_date=?", (today,)))
+    except Exception:  # noqa: BLE001 —— 表缺失不阻断,降级为持仓+profile
+        pass
+    codes.update(r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM fund_profile"))
+    return sorted(codes)
+
+
 def _refresh_holdings_quotes():
     """对当前持仓的基金批量刷新盘中估值。返回成功数。"""
     from backend.datasource.fundgz import refresh_quotes
     conn = get_conn()
     try:
         codes = [r[0] for r in conn.execute("SELECT DISTINCT fund_code FROM holding")]
+        if not codes:
+            return 0
+        return refresh_quotes(conn, codes)
+    finally:
+        conn.close()
+
+
+def _refresh_tracked_quotes():
+    """对持仓 ∪ 今日已采 ∪ 被查详情基金批量刷新盘中估值。返回成功数。
+
+    比 _refresh_holdings_quotes 范围更广:市场页点开过的基金也会被持续采样,
+    让其详情页折线在盘中有数据延伸。
+    """
+    from backend.datasource.fundgz import refresh_quotes
+    conn = get_conn()
+    try:
+        codes = _quote_target_codes(conn)
         if not codes:
             return 0
         return refresh_quotes(conn, codes)
@@ -252,7 +288,7 @@ def _safe_quote_refresh(quote_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("quote_refresh", quote_fn)
     if status == "ok":
         if n:
-            print(f"[scheduler] 盘中估值刷新完成,更新 {n} 只持仓基金。")
+            print(f"[scheduler] 盘中估值刷新完成,更新 {n} 只基金。")
     else:
         print(f"[scheduler] 盘中估值刷新失败(不影响服务): {error}")
         _maybe_retry("quote_refresh", quote_fn, retries)
@@ -261,15 +297,20 @@ def _safe_quote_refresh(quote_fn, retries=DEFAULT_RETRIES):
 def start_quote_refresh(interval_seconds=60, quote_fn=None, run_now=True):
     """启动盘中估值定时刷新 daemon 线程,返回该线程。
 
-    业务层(list_holdings)只读缓存,估值由此后台线程写入,不再在请求路径现拉。
+    业务层(list_holdings)只读缓存,估值由此后台线程写入,不在请求路径现拉。
+    交易时段门控:非交易时段(周末/夜间)跳过抓取,不发起任何网络请求,保留
+    60s 心跳节奏;fundgz 非交易时段返回上一交易日定格值,采了也无意义且守合规。
     """
-    quote_fn = quote_fn or _refresh_holdings_quotes
+    from backend.datasource import fundgz
+    quote_fn = quote_fn or _refresh_tracked_quotes
 
     def _loop():
-        if run_now:
+        if run_now and fundgz.is_market_open():
             _safe_quote_refresh(quote_fn)
         while True:
             time.sleep(interval_seconds)
+            if not fundgz.is_market_open():
+                continue
             _safe_quote_refresh(quote_fn)
 
     t = threading.Thread(target=_loop, name="quote-refresh", daemon=True)
@@ -569,6 +610,50 @@ def start_session_purge(interval_hours=24, run_now=True):
             _safe_session_purge()
 
     t = threading.Thread(target=_loop, name="session-purge", daemon=True)
+    t.start()
+    return t
+
+
+# ---- 盘中时序清理:日更删除 7 天前 fund_quote_tick 旧数据,防膨胀 ----
+
+def _safe_tick_purge(retries=DEFAULT_RETRIES):
+    def _purge():
+        conn = get_conn()
+        try:
+            cur = conn.execute(
+                "DELETE FROM fund_quote_tick "
+                "WHERE quote_date < date('now','localtime','-7 days')"
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+    n, status, error = _record_run("tick_purge", _purge)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 盘中时序清理完成,删除 {n} 行。")
+    else:
+        print(f"[scheduler] 盘中时序清理失败(不影响服务): {error}")
+        _maybe_retry("tick_purge", _purge, retries)
+
+
+def start_tick_purge(interval_hours=24, run_now=True):
+    """启动盘中时序清理 daemon(日更),返回该线程。
+
+    fund_quote_tick 每基金每日约 300 行(交易分钟数),7 天前旧数据无展示价值
+    (前端只查今日 quote_date),日更删除防表膨胀。表缺失(tick 未建)时降级。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_tick_purge()
+        while True:
+            time.sleep(interval)
+            _safe_tick_purge()
+
+    t = threading.Thread(target=_loop, name="tick-purge", daemon=True)
     t.start()
     return t
 
