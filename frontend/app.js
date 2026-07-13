@@ -46,3 +46,56 @@ function startApp() {
   if (!location.hash) location.hash = "#/portfolio";  // 默认「我的持仓」
   renderRoute();
 }
+
+// ---- 站内通知轮询 + 浮窗(M9-D) ----
+let _notifTimer = null;
+
+async function _refreshNotifBadge() {
+  const badge = $("#notif-badge");
+  if (!badge) return;
+  try {
+    const r = await fetch("/api/notifications", { credentials: "same-origin" });
+    if (r.status === 401) { stopNotifPoller(); return; }
+    const data = await r.json();
+    const n = (data.notifications || []).length;
+    badge.style.display = n > 0 ? "" : "none";
+    const c = $("#notif-cnt"); if (c) c.textContent = n;
+  } catch (e) { /* 静默:网络抖动不打扰用户 */ }
+}
+function startNotifPoller() {
+  _refreshNotifBadge();
+  if (_notifTimer) return;
+  _notifTimer = setInterval(_refreshNotifBadge, 60000);  // 每分钟轮询
+}
+function stopNotifPoller() {
+  if (_notifTimer) { clearInterval(_notifTimer); _notifTimer = null; }
+  const badge = $("#notif-badge"); if (badge) badge.style.display = "none";
+  const pop = $("#notif-pop"); if (pop) pop.style.display = "none";
+}
+async function _markNotifRead(id) {
+  await fetch(`/api/notifications/${id}/read`, { method: "POST", credentials: "same-origin" });
+  _refreshNotifBadge();
+  showNotifs();
+}
+async function showNotifs() {
+  const pop = $("#notif-pop");
+  if (!pop) return;
+  if (pop.style.display !== "none") { pop.style.display = "none"; return; }  // 再点收起
+  pop.innerHTML = `<div class="empty">加载中…</div>`;
+  pop.style.display = "";
+  try {
+    const r = await fetch("/api/notifications", { credentials: "same-origin" });
+    if (r.status === 401) { pop.style.display = "none"; return showAuth(); }
+    const data = await r.json();
+    const items = data.notifications || [];
+    if (!items.length) { pop.innerHTML = `<div class="empty">暂无未读通知</div>`; return; }
+    pop.innerHTML = items.map(it => `
+      <div class="item">
+        <button onclick="_markNotifRead(${it.id})">已读</button>
+        <div class="msg">${it.message || ""}</div>
+        <div class="meta">${it.kind || ""} · ${it.created_at || ""}</div>
+      </div>`).join("");
+  } catch (e) {
+    pop.innerHTML = `<div class="empty">加载失败</div>`;
+  }
+}

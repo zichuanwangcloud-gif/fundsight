@@ -94,3 +94,19 @@ dialog button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-s
 .userbar b { color: #1f2733; }
 .userbar button { background: #eef1f6; color: #55607a; border: none; border-radius: 8px;
                   padding: 5px 12px; font-size: 12px; cursor: pointer; }
+
+/* 站内通知角标 + 浮窗(M9-D) */
+.notif-badge { position: relative; cursor: pointer; font-size: 15px; padding: 2px 4px; }
+.notif-badge b { position: absolute; top: -6px; right: -10px; background: #e0483d; color: #fff;
+                 font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; text-align: center;
+                 border-radius: 8px; padding: 0 4px; }
+.notif-pop { position: absolute; top: 34px; right: 0; width: 300px; background: #fff;
+             border: 1px solid #e2e6ee; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.1);
+             z-index: 20; max-height: 320px; overflow-y: auto; padding: 6px; }
+.notif-pop .item { padding: 9px 12px; border-bottom: 1px solid #f0f2f6; font-size: 13px; }
+.notif-pop .item:last-child { border-bottom: none; }
+.notif-pop .item .msg { color: #1f2733; }
+.notif-pop .item .meta { color: #a0a8b8; font-size: 11px; margin-top: 3px; }
+.notif-pop .item button { float: right; background: #eef1f6; color: #55607a; border: none;
+                          border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.notif-pop .empty { text-align: center; color: #a0a8b8; padding: 18px 0; font-size: 13px; }
