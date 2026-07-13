@@ -129,3 +129,21 @@ def delete_session(token):
         conn.commit()
     finally:
         conn.close()
+
+
+def purge_expired_sessions():
+    """删除所有已过期 session(expires_at <= now)。返回删除条数。
+
+    防 session 表无限膨胀:登录签发的 token 默认 30 天有效,过期后不再
+    被使用(get_user_by_token 已判过期),但行不会自动消失。由 scheduler
+    日更清理。
+    """
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            "DELETE FROM session WHERE expires_at <= datetime('now','localtime')"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()

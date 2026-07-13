@@ -29,12 +29,16 @@ from backend.scheduler import (  # noqa: E402
     start_history_refresh, trigger_history_for,
     start_profile_refresh,
     start_nav_gap_check,
+    start_session_purge,
 )
 from backend import auth  # noqa: E402
 from backend.api import ALL_ROUTES  # noqa: E402
 from backend.api._router import dispatch  # noqa: E402
 
 SESSION_COOKIE = "fs_session"
+# HTTPS 部署时设 FUNDSIGHT_SECURE_COOKIE=1 给会话 Cookie 追加 Secure 标志
+# (本地 http 不能开,否则浏览器不回传 Cookie)。README 对应 TODO 落地。
+SECURE_COOKIE = os.environ.get("FUNDSIGHT_SECURE_COOKIE", "").lower() in ("1", "true", "yes")
 
 FRONTEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "index.html")
 FRONTEND_DIR = os.path.dirname(FRONTEND)
@@ -302,16 +306,18 @@ class Handler(BaseHTTPRequestHandler):
         return uid
 
     def _session_cookie_header(self, token, max_age=30 * 24 * 3600):
-        # 本地 http 不加 Secure；HTTPS 部署应追加 "; Secure"。
+        # HTTPS 部署设 FUNDSIGHT_SECURE_COOKIE=1 即追加 Secure(本地 http 不开)。
+        secure = "; Secure" if SECURE_COOKIE else ""
         return (
             "Set-Cookie",
-            f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax; Max-Age={max_age}",
+            f"{SESSION_COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax{secure}; Max-Age={max_age}",
         )
 
     def _clear_cookie_header(self):
+        secure = "; Secure" if SECURE_COOKIE else ""
         return (
             "Set-Cookie",
-            f"{SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0",
+            f"{SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax{secure}; Max-Age=0",
         )
 
     def _read_json(self):
@@ -480,6 +486,8 @@ def main():
     # 净值断点检测:日更检查持仓基金 max(nav_date) 距今是否超阈值(默认 5 天),
     # 有缺失记 task_run fail,前端「系统状态」页据此标红告警(M9-C)。
     start_nav_gap_check(interval_hours=24)
+    # 过期 session 清理:日更删除 expires_at 过期的 token 行,防 session 表膨胀(M9-E)。
+    start_session_purge(interval_hours=24)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
