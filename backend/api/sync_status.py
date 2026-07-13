@@ -8,9 +8,11 @@
 接口:
   GET /api/admin/sync-status   各任务最近一次状态(概览)
   GET /api/admin/sync-runs     最近执行流水(默认 100 条,limit 可调 1-500)
+  GET /api/admin/sync-alerts   未恢复失败任务(连续失败超阈值)+ 受影响基金(M10C)
 """
 from backend.api._router import Ctx  # noqa: F401  (保持路由约定一致)
 from backend.models.db import get_conn
+from backend import scheduler
 
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
@@ -66,7 +68,50 @@ def handle_list(ctx):
     return {"runs": _list_recent(limit)}
 
 
+def _list_sync_alerts():
+    """未恢复失败任务(连续失败超阈值)+ 受影响基金 + 最近错误,供 admin 告警区。
+
+    阈值与告警推送一致(scheduler.SYNC_ALERT_THRESHOLD):任务最近阈值次执行全
+    fail 即视为未恢复;出现 ok 即恢复、从告警区消失。受影响基金取全部持仓
+    fund_code(去重排序)。
+    """
+    conn = get_conn()
+    try:
+        names = [r[0] for r in conn.execute(
+            "SELECT DISTINCT task_name FROM task_run").fetchall()]
+        out = []
+        for name in names:
+            fails = scheduler._consecutive_fail_count(name, conn)
+            if fails < scheduler.SYNC_ALERT_THRESHOLD:
+                continue
+            codes = [r[0] for r in conn.execute(
+                "SELECT DISTINCT fund_code FROM holding "
+                "WHERE fund_code IS NOT NULL ORDER BY fund_code"
+            ).fetchall()]
+            last = conn.execute(
+                "SELECT error, started_at FROM task_run WHERE task_name=? "
+                "ORDER BY id DESC LIMIT 1", (name,)
+            ).fetchone()
+            out.append({
+                "task_name": name,
+                "consecutive_fails": fails,
+                "affected_funds": codes,
+                "last_error": last[0] if last else None,
+                "last_started_at": last[1] if last else None,
+            })
+        return out
+    finally:
+        conn.close()
+
+
+def handle_alerts(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    return {"alerts": _list_sync_alerts()}
+
+
 ROUTES = [
     ("GET", "api/admin/sync-status", handle_summary),
     ("GET", "api/admin/sync-runs", handle_list),
+    ("GET", "api/admin/sync-alerts", handle_alerts),
 ]
