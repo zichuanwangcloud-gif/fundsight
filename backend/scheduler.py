@@ -364,6 +364,45 @@ def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):
 NAV_GAP_THRESHOLD_DAYS = 5  # 自然日,覆盖周末;max(nav_date) 距今超过即视为断点
 
 
+def _push_nav_gap_notifications(stale_codes):
+    """对持有断点基金的 user 推送站内通知(M9-D)。
+
+    去重:同一 user + fund_code + nav_gap 若已有未读通知则跳过,避免每次巡检
+    都新增一条。通知本身写入失败只日志,不影响检测。
+    """
+    if not stale_codes:
+        return
+    conn = None
+    try:
+        conn = get_conn()
+        for code in stale_codes:
+            uids = [r[0] for r in conn.execute(
+                "SELECT DISTINCT user_id FROM holding WHERE fund_code=?", (code,))]
+            for uid in uids:
+                exists = conn.execute(
+                    "SELECT 1 FROM notification WHERE user_id=? AND fund_code=? "
+                    "AND kind='nav_gap' AND read_at IS NULL",
+                    (uid, code),
+                ).fetchone()
+                if exists:
+                    continue
+                conn.execute(
+                    "INSERT INTO notification(user_id,fund_code,kind,message,created_at) "
+                    "VALUES(?,?,?,?,datetime('now','localtime'))",
+                    (uid, code, "nav_gap",
+                     f"{code} 净值已连续缺失,抓取可能异常,请查看系统状态"),
+                )
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 站内通知写入失败: {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def _detect_nav_gaps(threshold_days=NAV_GAP_THRESHOLD_DAYS):
     """检测持仓基金净值断点:max(nav_date) 距今 > threshold_days 或无记录。
 
@@ -420,6 +459,7 @@ def _detect_nav_gaps(threshold_days=NAV_GAP_THRESHOLD_DAYS):
     if stale:
         print(f"[scheduler] 净值断点检测告警: {len(stale)} 只持仓基金净值缺失 "
               f"({', '.join(stale[:10])})")
+        _push_nav_gap_notifications(stale)
     return len(stale)
 
 

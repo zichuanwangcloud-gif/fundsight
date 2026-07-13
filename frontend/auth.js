@@ -4,6 +4,7 @@
 let authMode = "login"; // login | register
 
 function showAuth() {
+  stopNotifPoller();
   const ub = $("#userbar"); if (ub) ub.style.display = "none";
   $("#auth").style.display = "flex";
   $("#auth-err").textContent = "";
@@ -13,6 +14,7 @@ function hideAuth(username) {
   $("#auth").style.display = "none";
   const ub = $("#userbar"); if (ub) ub.style.display = "flex";
   $("#me-name").textContent = username;
+  startNotifPoller();
 }
 function toggleAuthMode() {
   authMode = authMode === "login" ? "register" : "login";

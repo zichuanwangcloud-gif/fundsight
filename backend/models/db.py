@@ -119,6 +119,19 @@ CREATE TABLE IF NOT EXISTS task_run (
     error       TEXT              -- 失败时 "ExcType: msg",成功为 NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_run_name_time ON task_run(task_name, started_at);
+
+-- 站内通知:后台巡检(净值断点等)发现异常时,推送给相关持仓用户(M9-D)。
+-- kind = nav_gap | stop_profit | stop_loss;read_at 为 NULL 表示未读。
+CREATE TABLE IF NOT EXISTS notification (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    fund_code   TEXT,
+    kind        TEXT NOT NULL,    -- nav_gap | stop_profit | stop_loss
+    message     TEXT,
+    created_at  TEXT,
+    read_at     TEXT              -- datetime('now','localtime'),NULL=未读
+);
+CREATE INDEX IF NOT EXISTS idx_notification_user_read ON notification(user_id, read_at);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
