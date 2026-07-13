@@ -1,0 +1,25 @@
+/* 「系统状态」页 —— 抓取任务可观测面板(M9-B) */
+.admin-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.admin-head h2 { font-size: 18px; }
+.admin-head .ghost { background: #fff; border: 1px solid #d6dbe4; border-radius: 8px;
+                    padding: 6px 14px; font-size: 13px; color: #55607a; cursor: pointer; }
+.admin-head .ghost:hover { border-color: #3b7cff; color: #3b7cff; }
+.admin-hint { color: #8a94a6; font-size: 13px; margin-bottom: 18px; }
+.admin-sec { font-size: 14px; color: #55607a; margin: 18px 0 10px; }
+.admin-muted { color: #a0a8b8; font-weight: normal; font-size: 12px; }
+
+.admin-tbl { width: 100%; border-collapse: collapse; background: #fff;
+             border-radius: 12px; overflow: hidden;
+             box-shadow: 0 1px 3px rgba(0,0,0,.05); font-size: 13px; }
+.admin-tbl th, .admin-tbl td { padding: 9px 12px; text-align: left;
+                               border-bottom: 1px solid #f0f2f6; }
+.admin-tbl thead th { background: #f7f8fb; color: #8a94a6; font-weight: 600;
+                      font-size: 12px; }
+.admin-tbl tbody tr:last-child td { border-bottom: none; }
+.admin-tbl td.admin-err { color: #c0403a; font-size: 12px; max-width: 220px;
+                          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+         border-radius: 6px; }
+.badge.ok { background: #e7f7ee; color: #16a34a; }
+.badge.fail { background: #fdecec; color: #e0483d; }
