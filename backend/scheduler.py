@@ -482,3 +482,35 @@ def start_nav_gap_check(interval_hours=24, run_now=True):
     t = threading.Thread(target=_loop, name="nav-gap-check", daemon=True)
     t.start()
     return t
+
+
+# ---- Session 过期清理:日更 daemon(M9-E) ----
+
+def _safe_session_purge():
+    from backend import auth
+    n, status, error = _record_run("session_purge", auth.purge_expired_sessions)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 过期 session 清理完成,删除 {n} 条。")
+    else:
+        print(f"[scheduler] 过期 session 清理失败(不影响服务): {error}")
+
+
+def start_session_purge(interval_hours=24, run_now=True):
+    """启动过期 session 清理 daemon(日更),返回该线程。
+
+    token 默认 30 天有效,过期行不再被使用但留库膨胀。日更清理把
+    expires_at <= now 的 session 删除,结果落 task_run 供可观测。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_session_purge()
+        while True:
+            time.sleep(interval)
+            _safe_session_purge()
+
+    t = threading.Thread(target=_loop, name="session-purge", daemon=True)
+    t.start()
+    return t

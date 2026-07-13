@@ -12,6 +12,7 @@ const _TASK_LABELS = {
   quote_one: "单只估值补拉",
   history_one: "单只历史补拉",
   nav_gap_check: "净值断点检测",
+  session_purge: "Session 清理",
 };
 function _taskLabel(name) { return _TASK_LABELS[name] || name; }
 
