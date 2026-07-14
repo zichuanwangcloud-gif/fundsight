@@ -223,8 +223,125 @@ def get_returns_attribution(ctx):
     return {"fund_code": code, "periods": periods}
 
 
+# --------------------------------------------------------------------------- #
+# PRD-01 风险指标 —— 波动率 / 最大回撤 / 夏普 / 索提诺 / 卡玛
+#
+# 基于 fund_nav_history 近1年序列纯计算,读 nav_adj / equity_return_adj(复权口径,
+# 依赖 PRD-02;未合入时 COALESCE 回落 nav / equity_return,note 标注)。
+# 全是点状统计,不画走势曲线,守"不画走势图"红线。
+# 端点:GET /api/fund/{code}/risk?window=1y
+# --------------------------------------------------------------------------- #
+def _risk_series(conn, code):
+    """近1年升序 (nav_date, nav_adj|nav, er_adj|er)。nav 必非空。"""
+    from datetime import date, timedelta
+    start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    return conn.execute(
+        "SELECT nav_date, COALESCE(nav_adj, nav) AS nav, "
+        "COALESCE(equity_return_adj, equity_return) AS er "
+        "FROM fund_nav_history WHERE fund_code=? AND nav_date >= ? "
+        "AND nav IS NOT NULL ORDER BY nav_date ASC",
+        (code, start),
+    ).fetchall()
+
+
+def _std(values, sample=True):
+    import math
+    n = len(values)
+    if n < 2:
+        return None
+    mean = sum(values) / n
+    denom = (n - 1) if sample else n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / denom)
+
+
+def _compute_risk(conn, code):
+    import math
+    import os
+    rows = _risk_series(conn, code)
+    n = len(rows)
+
+    def _null(note):
+        return {
+            "volatility": None, "max_drawdown": None,
+            "max_drawdown_peak_date": None, "max_drawdown_trough_date": None,
+            "sharpe": None, "sortino": None, "calmar": None,
+            "sample_days": n, "note": note,
+        }
+
+    if n < 30:
+        return _null("数据不足1年")
+
+    # 波动率:日收益率(小数)样本标准差 × √252,转百分数
+    ers = [r["er"] / 100 for r in rows if r["er"] is not None]
+    volatility = None
+    if len(ers) >= 30:
+        sd = _std(ers)
+        if sd is not None and sd > 0:
+            volatility = round(sd * math.sqrt(252) * 100, 2)
+
+    # 最大回撤:nav 峰谷
+    peak, peak_date = None, None
+    mdd, pd_date, tr_date = None, None, None
+    for r in rows:
+        v = r["nav"]
+        if peak is None or v > peak:
+            peak, peak_date = v, r["nav_date"]
+        if peak and peak > 0:
+            dd = (v - peak) / peak
+            if mdd is None or dd < mdd:
+                mdd, pd_date, tr_date = dd, peak_date, r["nav_date"]
+    max_drawdown = round(mdd * 100, 2) if mdd is not None else None
+
+    # 年化收益:近1年持有收益作年化(窗口即1年)
+    start_nav = rows[0]["nav"]
+    end_nav = rows[-1]["nav"]
+    R_annual = round((end_nav / start_nav - 1) * 100, 2) if start_nav > 0 else None
+
+    Rf = float(os.environ.get("FUNDSIGHT_RISK_FREE_RATE", "2.0"))
+    sharpe = None
+    sortino = None
+    calmar = None
+    if volatility and volatility > 0 and R_annual is not None:
+        sharpe = round((R_annual - Rf) / volatility, 3)
+    neg = [e for e in ers if e < 0]
+    if len(neg) >= 12:
+        nd = _std(neg)
+        if nd and nd > 0:
+            downside_ann_pct = nd * math.sqrt(252) * 100
+            if downside_ann_pct > 0 and R_annual is not None:
+                sortino = round((R_annual - Rf) / downside_ann_pct, 3)
+    if R_annual is not None and max_drawdown and max_drawdown < 0:
+        calmar = round(R_annual / abs(max_drawdown), 3)
+
+    note = None if volatility is not None else "收益率样本不足,波动率为空"
+    return {
+        "volatility": volatility,
+        "max_drawdown": max_drawdown,
+        "max_drawdown_peak_date": pd_date,
+        "max_drawdown_trough_date": tr_date,
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "calmar": calmar,
+        "sample_days": n,
+        "note": note,
+    }
+
+
+def get_risk(ctx):
+    code = (ctx.params.get("code") or "").strip()
+    if not code:
+        return (400, {"error": "缺少基金代码"})
+    conn = get_conn()
+    try:
+        risk = _compute_risk(conn, code)
+    finally:
+        conn.close()
+    return {"fund_code": code, **risk}
+
+
 ROUTES = [
     ("GET", "/api/fund/{code}/returns", get_returns),
     ("GET", "/api/fund/{code}/cost-curve", get_cost_curve),
     ("GET", "/api/fund/{code}/returns-attribution", get_returns_attribution),
+    ("GET", "/api/fund/{code}/risk", get_risk),
 ]
