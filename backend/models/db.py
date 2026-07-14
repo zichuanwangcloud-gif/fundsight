@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS fund_profile (
     syl_3y     REAL,   -- pingzhongdata 原字段：近3年收益率 %
     syl_6y     REAL,   -- pingzhongdata 原字段：成立以来收益率 %
     syl_1y     REAL,   -- pingzhongdata 原字段：近1月收益率 %
+    asset_alloc_stock REAL,  -- 最新一期股票占净比 %（PRD-05，Data_assetAllocation）
+    asset_alloc_bond  REAL,  -- 最新一期债券占净比 %
+    asset_alloc_cash  REAL,  -- 最新一期现金占净比 %
+    holder_inst       REAL,  -- 最新一期机构持有比例 %（Data_holderStructure）
+    holder_retail     REAL,  -- 最新一期个人持有比例 %
     updated_at TEXT
 );
 
@@ -201,6 +206,13 @@ def _ensure_columns(conn):
         conn.execute("ALTER TABLE fund_nav_history ADD COLUMN nav_adj REAL")
     if "equity_return_adj" not in hist_cols:
         conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return_adj REAL")
+
+    # PRD-05 基本面深化：资产配置(股/债/现金占净比) + 持有人结构(机构/个人)
+    prof_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_profile)")}
+    for col in ("asset_alloc_stock", "asset_alloc_bond", "asset_alloc_cash",
+               "holder_inst", "holder_retail"):
+        if col not in prof_cols:
+            conn.execute(f"ALTER TABLE fund_profile ADD COLUMN {col} REAL")
 
 
 def init_db(with_seed=True):
