@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS holding (
     target_price  REAL,   -- 目标净值
     stop_profit   REAL,   -- 止盈线 %
     stop_loss     REAL,   -- 止损线 %
+    trailing_stop_pct REAL,  -- 移动止盈回撤 %(PRD-07,从 peak_nav 回撤触发)
+    peak_nav    REAL,   -- 持仓期最高净值(scheduler 日更,只增不减)
     created_at    TEXT
 );
 
@@ -223,6 +225,12 @@ def _ensure_columns(conn):
         conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_rank INTEGER")
     if "peer_total" not in prof_cols:
         conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_total INTEGER")
+    # PRD-07 移动止盈:holding 加 trailing_stop_pct / peak_nav
+    hold_cols = {r[1] for r in conn.execute("PRAGMA table_info(holding)")}
+    if "trailing_stop_pct" not in hold_cols:
+        conn.execute("ALTER TABLE holding ADD COLUMN trailing_stop_pct REAL")
+    if "peak_nav" not in hold_cols:
+        conn.execute("ALTER TABLE holding ADD COLUMN peak_nav REAL")
 
 
 def init_db(with_seed=True):

@@ -113,6 +113,17 @@ def _compute_for_holding(conn, h, q):
             else:
                 note = "当前趋势下短期无法达成"
 
+    # 移动止盈实时判断(PRD-07):读 holding.trailing_stop_pct/peak_nav
+    hd = dict(h)
+    trailing = hd.get("trailing_stop_pct")
+    peak = hd.get("peak_nav")
+    hit_trailing_stop = None
+    if q:
+        qd = dict(q)
+        cur_price = qd.get("nav") if qd.get("nav") is not None else qd.get("gsz")
+        if trailing is not None and peak is not None and cur_price is not None and peak > 0:
+            hit_trailing_stop = cur_price <= peak * (1 - trailing / 100)
+
     return {
         "fund_code": code,
         "target_rate": target_rate,
@@ -120,6 +131,9 @@ def _compute_for_holding(conn, h, q):
         "current_return_pct": current_return_pct,
         "recovery_pct": recovery_pct,
         "days_to_target_est": days_to_target_est,
+        "trailing_stop_pct": trailing,
+        "peak_nav": peak,
+        "hit_trailing_stop": hit_trailing_stop,
         "note": note,
     }
 
@@ -130,7 +144,8 @@ def get_expectations(ctx):
     conn = get_conn()
     try:
         holdings = conn.execute(
-            "SELECT fund_code, target_rate, cost_amount, hold_amount, created_at "
+            "SELECT fund_code, target_rate, cost_amount, hold_amount, created_at, "
+            "trailing_stop_pct, peak_nav "
             "FROM holding WHERE user_id=?", (ctx.user_id,)
         ).fetchall()
         items = []
