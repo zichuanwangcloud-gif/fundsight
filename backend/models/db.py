@@ -50,9 +50,12 @@ CREATE TABLE IF NOT EXISTS holding (
 
 -- 历史净值序列：走势图用，抓取层日更写入，业务层只读
 CREATE TABLE IF NOT EXISTS fund_nav_history (
-    fund_code  TEXT NOT NULL,
-    nav_date   TEXT NOT NULL,   -- YYYY-MM-DD
-    nav        REAL,            -- 单位净值
+    fund_code         TEXT NOT NULL,
+    nav_date         TEXT NOT NULL,   -- YYYY-MM-DD
+    nav              REAL,            -- 单位净值（分红日会断崖跳跌）
+    equity_return    REAL,            -- 单位净值口径当日涨跌幅 %（分红日假大跌）
+    nav_adj          REAL,            -- 累计净值（后复权，分红日不跳变；PRD-02）
+    equity_return_adj REAL,           -- 复权口径当日涨跌幅 %（消除分红假大跌；PRD-02）
     PRIMARY KEY (fund_code, nav_date)
 );
 
@@ -193,6 +196,11 @@ def _ensure_columns(conn):
     hist_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_nav_history)")}
     if "equity_return" not in hist_cols:
         conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return REAL")
+    # PRD-02 分红复权：累计净值（后复权）+ 复权涨跌幅，消除分红日假大跌
+    if "nav_adj" not in hist_cols:
+        conn.execute("ALTER TABLE fund_nav_history ADD COLUMN nav_adj REAL")
+    if "equity_return_adj" not in hist_cols:
+        conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return_adj REAL")
 
 
 def init_db(with_seed=True):
