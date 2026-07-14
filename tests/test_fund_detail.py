@@ -36,6 +36,8 @@ SAMPLE_JS = (
     'var Data_holderStructure = {"series":[{"name":"机构持有比例","data":[0,10]},'
     '{"name":"个人持有比例","data":[100,90]},{"name":"内部持有比例","data":[0.0007,0.0001]}],'
     '"categories":["2024-06-30","2025-06-30"]};'
+    'var Data_rateInSimilarType = [{"x":1718208000000,"y":1667,"sc":"2753"}];'
+    'var Data_rateInSimilarPersent = [[1718208000000,39.45]];'
     'var Data_netWorthTrend = ['
     '{"x":1710201600000,"y":1.0000,"equityReturn":0},'
     '{"x":1710288000000,"y":1.0200,"equityReturn":2.0},'
@@ -136,6 +138,9 @@ class TestFetchProfile(unittest.TestCase):
         self.assertEqual(d["asset_alloc_cash"], 5.0)
         self.assertEqual(d["holder_inst"], 10.0)
         self.assertEqual(d["holder_retail"], 90.0)
+        self.assertEqual(d["peer_percentile"], 39.45)
+        self.assertEqual(d["peer_rank"], 1667)
+        self.assertEqual(d["peer_total"], 2753)
 
     @patch("backend.datasource.fund_profile.urllib.request.urlopen")
     def test_returns_none_on_network_error(self, mock_urlopen):
@@ -175,6 +180,7 @@ class TestRefreshProfile(unittest.TestCase):
             "syl_6y": 4.31, "syl_1y": -5.76,
             "asset_alloc_stock": 90.0, "asset_alloc_bond": 3.0, "asset_alloc_cash": 5.0,
             "holder_inst": 10.0, "holder_retail": 90.0,
+            "peer_percentile": 39.45, "peer_rank": 1667, "peer_total": 2753,
         }
         conn = sqlite3.connect(self.path)
         n = fund_profile.refresh_profile(conn, ["020608"])
@@ -192,6 +198,7 @@ class TestRefreshProfile(unittest.TestCase):
             "syl_6y": None, "syl_1y": None,
             "asset_alloc_stock": None, "asset_alloc_bond": None, "asset_alloc_cash": None,
             "holder_inst": None, "holder_retail": None,
+            "peer_percentile": None, "peer_rank": None, "peer_total": None,
         }
         conn = sqlite3.connect(self.path)
         fund_profile.refresh_profile(conn, ["020608"])

@@ -17,7 +17,8 @@ def _read_profile(conn, code):
     row = conn.execute(
         "SELECT fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,"
         "asset_alloc_stock,asset_alloc_bond,asset_alloc_cash,"
-        "holder_inst,holder_retail,updated_at "
+        "holder_inst,holder_retail,"
+        "peer_percentile,peer_rank,peer_total,updated_at "
         "FROM fund_profile WHERE fund_code=?", (code,)
     ).fetchone()
     return dict(row) if row else None
