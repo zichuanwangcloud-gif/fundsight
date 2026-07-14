@@ -58,7 +58,15 @@ def _parse_acc_map(raw):
         return {}
     out = {}
     for pt in acc:
-        ts_ms, y = pt.get("x"), pt.get("y")
+        # 天天基金 pingzhongdata 里 Data_ACWorthTrend 是 [[ts,y],...] 二元数组,
+        # 而 Data_netWorthTrend 才是 [{x,y,equityReturn},...] 字典数组。
+        # 这里两种形态都兼容,避免对 list 调 .get() 报 'list' object has no attribute 'get'。
+        if isinstance(pt, dict):
+            ts_ms, y = pt.get("x"), pt.get("y")
+        elif isinstance(pt, (list, tuple)) and len(pt) >= 2:
+            ts_ms, y = pt[0], pt[1]
+        else:
+            continue
         if ts_ms is None or y is None:
             continue
         d = datetime.datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
