@@ -100,6 +100,37 @@ def fetch_profile(code):
             if series and isinstance(series[-1], dict):
                 scale = _f(series[-1].get("y"))
 
+        # 资产配置最新一期(股票/债券/现金占净比)——PRD-05
+        asset_alloc_stock = asset_alloc_bond = asset_alloc_cash = None
+        alloc = _json_field(raw, "Data_assetAllocation")
+        if isinstance(alloc, dict):
+            for s in (alloc.get("series") or []):
+                data = s.get("data") or []
+                if not data:
+                    continue
+                last = _f(data[-1])
+                nm = s.get("name", "")
+                if "股票" in nm:
+                    asset_alloc_stock = last
+                elif "债券" in nm:
+                    asset_alloc_bond = last
+                elif "现金" in nm:
+                    asset_alloc_cash = last
+        # 持有人结构最新一期(机构/个人)——PRD-05
+        holder_inst = holder_retail = None
+        holder = _json_field(raw, "Data_holderStructure")
+        if isinstance(holder, dict):
+            for s in (holder.get("series") or []):
+                data = s.get("data") or []
+                if not data:
+                    continue
+                last = _f(data[-1])
+                nm = s.get("name", "")
+                if "机构" in nm:
+                    holder_inst = last
+                elif "个人" in nm:
+                    holder_retail = last
+
         if not name and manager is None and scale is None and rate is None:
             return None  # 报文完全不含预期字段,视为解析失败
 
@@ -113,6 +144,11 @@ def fetch_profile(code):
             "syl_3y": syl_3y,
             "syl_6y": syl_6y,
             "syl_1y": syl_1y,
+            "asset_alloc_stock": asset_alloc_stock,
+            "asset_alloc_bond": asset_alloc_bond,
+            "asset_alloc_cash": asset_alloc_cash,
+            "holder_inst": holder_inst,
+            "holder_retail": holder_retail,
         }
     except Exception as e:  # noqa: BLE001 —— 解析环节兜底,绝不向上抛
         print(f"[fund_profile] 解析 {code} 失败: {type(e).__name__} {e}")
@@ -128,13 +164,22 @@ def refresh_profile(conn, codes):
             continue
         conn.execute(
             """INSERT INTO fund_profile(
-                 fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,updated_at)
+                 fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,
+                 asset_alloc_stock,asset_alloc_bond,asset_alloc_cash,
+                 holder_inst,holder_retail,updated_at)
                VALUES (:fund_code,:name,:manager,:scale,:rate,
-                       :syl_1n,:syl_3y,:syl_6y,:syl_1y,datetime('now','localtime'))
+                       :syl_1n,:syl_3y,:syl_6y,:syl_1y,
+                       :asset_alloc_stock,:asset_alloc_bond,:asset_alloc_cash,
+                       :holder_inst,:holder_retail,datetime('now','localtime'))
                ON CONFLICT(fund_code) DO UPDATE SET
                  name=excluded.name, manager=excluded.manager, scale=excluded.scale,
                  rate=excluded.rate, syl_1n=excluded.syl_1n, syl_3y=excluded.syl_3y,
                  syl_6y=excluded.syl_6y, syl_1y=excluded.syl_1y,
+                 asset_alloc_stock=excluded.asset_alloc_stock,
+                 asset_alloc_bond=excluded.asset_alloc_bond,
+                 asset_alloc_cash=excluded.asset_alloc_cash,
+                 holder_inst=excluded.holder_inst,
+                 holder_retail=excluded.holder_retail,
                  updated_at=excluded.updated_at""",
             d,
         )

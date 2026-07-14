@@ -30,6 +30,12 @@ SAMPLE_JS = (
     'var Data_currentFundManager =[{"id":"1","name":"张三","fundSize":"10亿"}] ;'
     'var Data_fluctuationScale = {"categories":["2025-12-31","2026-03-31"],'
     '"series":[{"y":8.5,"mom":"1%"},{"y":10.19,"mom":"5%"}]};'
+    'var Data_assetAllocation = {"series":[{"name":"股票占净比","data":[95.11,90.0]},'
+    '{"name":"债券占净比","data":[2.21,3.0]},{"name":"现金占净比","data":[4.34,5.0]}],'
+    '"categories":["2025-06-30","2025-09-30"]};'
+    'var Data_holderStructure = {"series":[{"name":"机构持有比例","data":[0,10]},'
+    '{"name":"个人持有比例","data":[100,90]},{"name":"内部持有比例","data":[0.0007,0.0001]}],'
+    '"categories":["2024-06-30","2025-06-30"]};'
     'var Data_netWorthTrend = ['
     '{"x":1710201600000,"y":1.0000,"equityReturn":0},'
     '{"x":1710288000000,"y":1.0200,"equityReturn":2.0},'
@@ -125,6 +131,11 @@ class TestFetchProfile(unittest.TestCase):
         self.assertEqual(d["syl_3y"], 15.59)
         self.assertEqual(d["syl_6y"], 4.31)
         self.assertEqual(d["syl_1y"], -5.76)
+        self.assertEqual(d["asset_alloc_stock"], 90.0)
+        self.assertEqual(d["asset_alloc_bond"], 3.0)
+        self.assertEqual(d["asset_alloc_cash"], 5.0)
+        self.assertEqual(d["holder_inst"], 10.0)
+        self.assertEqual(d["holder_retail"], 90.0)
 
     @patch("backend.datasource.fund_profile.urllib.request.urlopen")
     def test_returns_none_on_network_error(self, mock_urlopen):
@@ -162,6 +173,8 @@ class TestRefreshProfile(unittest.TestCase):
             "fund_code": "020608", "name": "测试基金C", "manager": "张三",
             "scale": 10.19, "rate": "0.15", "syl_1n": 31.81, "syl_3y": 15.59,
             "syl_6y": 4.31, "syl_1y": -5.76,
+            "asset_alloc_stock": 90.0, "asset_alloc_bond": 3.0, "asset_alloc_cash": 5.0,
+            "holder_inst": 10.0, "holder_retail": 90.0,
         }
         conn = sqlite3.connect(self.path)
         n = fund_profile.refresh_profile(conn, ["020608"])
@@ -177,6 +190,8 @@ class TestRefreshProfile(unittest.TestCase):
             "fund_code": "020608", "name": "A", "manager": None,
             "scale": None, "rate": None, "syl_1n": None, "syl_3y": None,
             "syl_6y": None, "syl_1y": None,
+            "asset_alloc_stock": None, "asset_alloc_bond": None, "asset_alloc_cash": None,
+            "holder_inst": None, "holder_retail": None,
         }
         conn = sqlite3.connect(self.path)
         fund_profile.refresh_profile(conn, ["020608"])

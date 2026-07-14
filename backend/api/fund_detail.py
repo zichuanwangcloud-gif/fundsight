@@ -15,7 +15,9 @@ DEFAULT_DAYS = 180
 
 def _read_profile(conn, code):
     row = conn.execute(
-        "SELECT fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,updated_at "
+        "SELECT fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,"
+        "asset_alloc_stock,asset_alloc_bond,asset_alloc_cash,"
+        "holder_inst,holder_retail,updated_at "
         "FROM fund_profile WHERE fund_code=?", (code,)
     ).fetchone()
     return dict(row) if row else None
