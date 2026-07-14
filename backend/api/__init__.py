@@ -21,5 +21,7 @@ from backend.api import notifications; ALL_ROUTES += notifications.ROUTES
 from backend.api import returns; ALL_ROUTES += returns.ROUTES
 # PRD-03 组合层汇总:资产配置占比 + 持仓集中度(按 user_id 隔离)
 from backend.api import portfolio; ALL_ROUTES += portfolio.ROUTES  # noqa: E401,E402
+# PRD-04 定投模拟(回测 + 一次性对比)
+from backend.api import dca; ALL_ROUTES += dca.ROUTES  # noqa: E401,E402
 # M10B 线路 B 鉴权加固:登录审计只读接口(按 user_id 隔离,越权 404)
 from backend.api import login_audit; ALL_ROUTES += login_audit.ROUTES  # noqa: E401,E402
