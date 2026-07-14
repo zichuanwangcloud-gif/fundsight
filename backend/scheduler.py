@@ -782,3 +782,86 @@ def start_trailing_stop_check(interval_hours=1, run_now=True):
     t = threading.Thread(target=_loop, name="trailing-stop-check", daemon=True)
     t.start()
     return t
+
+
+# ---- 定投计划:到点站内提醒 + next_date 滚动(PRD-04 P1) ----
+
+def _check_dca_plans():
+    """巡检到期定投计划:next_date<=today 推 dca_due 通知,next_date 滚到下一期。
+
+    通知去重(同 user+fund+dca_due 未读跳过)。返回触发条数。
+    """
+    from datetime import date as _date, timedelta as _td
+    conn = None
+    triggered = 0
+    try:
+        conn = get_conn()
+        today = _date.today().isoformat()
+        rows = conn.execute(
+            "SELECT id, user_id, fund_code, per_amount, freq, invest_day, next_date "
+            "FROM dca_plan WHERE active=1 AND next_date <= ?", (today,)
+        ).fetchall()
+        for r in rows:
+            exists = conn.execute(
+                "SELECT 1 FROM notification WHERE user_id=? AND fund_code=? "
+                "AND kind='dca_due' AND read_at IS NULL",
+                (r["user_id"], r["fund_code"]),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO notification(user_id,fund_code,kind,message,created_at) "
+                    "VALUES(?,?,?,?,datetime('now','localtime'))",
+                    (r["user_id"], r["fund_code"], "dca_due",
+                     f"该给 {r['fund_code']} 定投 ¥{r['per_amount']} 了"),
+                )
+                triggered += 1
+            try:
+                cur = _date.fromisoformat(r["next_date"])
+            except (ValueError, TypeError):
+                continue
+            freq, inv = r["freq"], r["invest_day"]
+            if freq == "monthly":
+                y, m = cur.year, cur.month
+                m += 1
+                if m > 12:
+                    y, m = y + 1, 1
+                try:
+                    nxt = _date(y, m, inv)
+                except ValueError:
+                    nxt = _date(y, m, 28)
+            elif freq == "biweekly":
+                nxt = cur + _td(days=14)
+            else:
+                nxt = cur + _td(days=7)
+            conn.execute("UPDATE dca_plan SET next_date=? WHERE id=?",
+                         (nxt.isoformat(), r["id"]))
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 定投计划巡检失败: {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return triggered
+
+
+def start_dca_plan_check(interval_hours=24, run_now=True):
+    """启动定投计划巡检 daemon(默认日更),返回该线程。
+
+    到点(next_date<=today)推 dca_due 站内通知(去重),next_date 滚动下一期。
+    仅应用内 notification,不做 Web Push(红线)。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _check_dca_plans()
+        while True:
+            time.sleep(interval)
+            _check_dca_plans()
+
+    t = threading.Thread(target=_loop, name="dca-plan-check", daemon=True)
+    t.start()
+    return t

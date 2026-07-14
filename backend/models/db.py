@@ -166,6 +166,20 @@ CREATE TABLE IF NOT EXISTS rate_limit_state (
     count        INTEGER NOT NULL,
     PRIMARY KEY (user_id, endpoint, window_start)
 );
+
+-- 定投计划:用户设定每月/周定投,到点站内提醒(PRD-04 P1)
+CREATE TABLE IF NOT EXISTS dca_plan (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    fund_code   TEXT NOT NULL,
+    per_amount  REAL NOT NULL,
+    freq        TEXT NOT NULL,        -- monthly | biweekly | weekly
+    invest_day  INTEGER NOT NULL,     -- 每月几号(1-28)或每周几(0-6)
+    next_date   TEXT NOT NULL,        -- 下次触发日(YYYY-MM-DD)
+    active      INTEGER DEFAULT 1,
+    created_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dca_plan_user ON dca_plan(user_id, active);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖

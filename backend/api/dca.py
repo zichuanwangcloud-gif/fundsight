@@ -162,6 +162,118 @@ def get_dca_simulate(ctx):
     }
 
 
+# --------------------------------------------------------------------------- #
+# PRD-04 P1 定投计划 CRUD —— GET/POST/PUT/DELETE /api/dca/plans
+#
+# 用户设定定投频率与金额,scheduler 日更巡检到点推 dca_due 站内通知(去重),
+# next_date 滚动到下一期。按 user_id 隔离。站内角标,非手机/Web Push(红线)。
+# --------------------------------------------------------------------------- #
+_VALID_FREQS = ("monthly", "biweekly", "weekly")
+
+
+def _roll_next_date(freq, invest_day, from_date):
+    """从 from_date 起算下一个定投日(不含当日),返回 date。"""
+    from datetime import timedelta
+    if freq == "monthly":
+        y, m = from_date.year, from_date.month
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
+        try:
+            from datetime import date
+            return date(y, m, invest_day)
+        except ValueError:
+            from datetime import date
+            return date(y, m, 28)
+    if freq == "biweekly":
+        return from_date + timedelta(days=14)
+    return from_date + timedelta(days=7)
+
+
+def list_dca_plans(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id,fund_code,per_amount,freq,invest_day,next_date,active,created_at "
+            "FROM dca_plan WHERE user_id=? ORDER BY id", (ctx.user_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+    return {"items": [dict(r) for r in rows]}
+
+
+def add_dca_plan(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    d = ctx.body or {}
+    fund_code = (d.get("fund_code") or "").strip()
+    freq = (d.get("freq") or "monthly").strip()
+    if not fund_code or freq not in _VALID_FREQS:
+        return (400, {"error": "fund_code/freq 非法"})
+    try:
+        per_amount = float(d.get("per_amount"))
+        invest_day = int(d.get("invest_day", 1))
+    except (TypeError, ValueError):
+        return (400, {"error": "per_amount/invest_day 非法"})
+    if per_amount <= 0:
+        return (400, {"error": "per_amount 须为正"})
+    invest_day = max(1, min(28, invest_day))
+    from datetime import date
+    next_date = _roll_next_date(freq, invest_day, date.today()).isoformat()
+    conn = get_conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO dca_plan(user_id,fund_code,per_amount,freq,invest_day,next_date,"
+            "active,created_at) VALUES(?,?,?,?,?,?,1,datetime('now','localtime'))",
+            (ctx.user_id, fund_code, per_amount, freq, invest_day, next_date))
+        conn.commit()
+        pid = cur.lastrowid
+    finally:
+        conn.close()
+    return {"ok": True, "id": pid, "next_date": next_date}
+
+
+def update_dca_plan(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    d = ctx.body or {}
+    fields, vals = [], []
+    for k in ("per_amount", "invest_day", "active", "next_date"):
+        if k in d:
+            fields.append(f"{k}=?")
+            vals.append(d[k])
+    if not fields:
+        return (400, {"error": "无可更新字段"})
+    vals.append(ctx.params.get("id"))
+    vals.append(ctx.user_id)
+    conn = get_conn()
+    try:
+        conn.execute(f"UPDATE dca_plan SET {','.join(fields)} WHERE id=? AND user_id=?", vals)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def delete_dca_plan(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM dca_plan WHERE id=? AND user_id=?",
+                     (ctx.params.get("id"), ctx.user_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
 ROUTES = [
     ("GET", "/api/fund/{code}/dca-simulate", get_dca_simulate),
+    ("GET", "/api/dca/plans", list_dca_plans),
+    ("POST", "/api/dca/plans", add_dca_plan),
+    ("PUT", "/api/dca/plans/{id}", update_dca_plan),
+    ("DELETE", "/api/dca/plans/{id}", delete_dca_plan),
 ]
