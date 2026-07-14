@@ -16,7 +16,7 @@ from backend.models.db import get_conn
 def _nav_on_or_before(conn, code, target_date):
     """取 <= target_date 的最近一条 nav(阶段起点)。返回 nav 或 None。"""
     row = conn.execute(
-        "SELECT nav FROM fund_nav_history WHERE fund_code=? "
+        "SELECT COALESCE(nav_adj, nav) AS nav FROM fund_nav_history WHERE fund_code=? "
         "AND nav_date <= ? AND nav IS NOT NULL ORDER BY nav_date DESC LIMIT 1",
         (code, target_date),
     ).fetchone()
@@ -27,7 +27,7 @@ def _compute_periods(conn, code):
     from datetime import date, timedelta
     today = date.today()
     latest = conn.execute(
-        "SELECT nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
+        "SELECT COALESCE(nav_adj, nav) AS nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
         "ORDER BY nav_date DESC LIMIT 1",
         (code,),
     ).fetchone()
@@ -45,7 +45,7 @@ def _compute_periods(conn, code):
     d_m3 = (today - timedelta(days=90)).strftime("%Y-%m-%d")
     d_ytd = f"{today.year}-01-01"
     earliest = conn.execute(
-        "SELECT nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
+        "SELECT COALESCE(nav_adj, nav) AS nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
         "ORDER BY nav_date ASC LIMIT 1",
         (code,),
     ).fetchone()
@@ -109,7 +109,7 @@ def _batch_cost_price(row):
 
 def _latest_nav(conn, code):
     row = conn.execute(
-        "SELECT nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
+        "SELECT COALESCE(nav_adj, nav) AS nav FROM fund_nav_history WHERE fund_code=? AND nav IS NOT NULL "
         "ORDER BY nav_date DESC LIMIT 1",
         (code,),
     ).fetchone()
