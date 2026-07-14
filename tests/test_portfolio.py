@@ -63,6 +63,18 @@ class _T(unittest.TestCase):
         c.commit()
         c.close()
 
+    def _nav(self, code, days_ago, nav, er=None):
+        from datetime import date, timedelta
+        d = (date.today() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        c = self._c()
+        c.execute(
+            "INSERT INTO fund_nav_history(fund_code,nav_date,nav,nav_adj,"
+            "equity_return,equity_return_adj) VALUES(?,?,?,?,?,?)",
+            (code, d, nav, nav, er, er),
+        )
+        c.commit()
+        c.close()
+
 
 class TestComputeSummary(_T):
     def test_empty_returns_zero(self):
@@ -170,6 +182,71 @@ class TestApi(_T):
         self.assertTrue(
             any(m == "GET" and p == "/api/portfolio/summary" for m, p, _ in portfolio.ROUTES)
         )
+
+
+class TestPortfolioRisk(_T):
+    def _seed_60(self, code, ers):
+        """ers: 60 个收益率,从最早(days_ago=59)到最新(days_ago=0)。nav 累乘。"""
+        nav = 1.0
+        for i, er in enumerate(ers):
+            self._nav(code, 59 - i, round(nav, 4), er)
+            nav *= (1 + er / 100)
+
+    def test_empty_risk(self):
+        c = db_mod.get_conn()
+        r = portfolio._compute_portfolio_risk(c, 1)
+        c.close()
+        self.assertEqual(r["correlation_matrix"]["matrix"], [])
+        self.assertIsNone(r["portfolio_max_drawdown"])
+
+    def test_correlation_identical_series(self):
+        # A、B 同 er 序列 → 相关 1.0
+        ers = [0.5, -0.3] * 30   # 60 点有方差
+        self._quote("A", gsz=1.0, dwjz=1.0)
+        self._quote("B", gsz=1.0, dwjz=1.0)
+        self._hold(1, "A", 1000, 1000)
+        self._hold(1, "B", 1000, 1000)
+        self._seed_60("A", ers)
+        self._seed_60("B", ers)
+        c = db_mod.get_conn()
+        r = portfolio._compute_portfolio_risk(c, 1)
+        c.close()
+        m = r["correlation_matrix"]["matrix"]
+        self.assertEqual(m[0][0], 1.0)
+        self.assertEqual(m[0][1], 1.0)
+        self.assertEqual(m[1][0], 1.0)
+
+    def test_portfolio_drawdown(self):
+        # 前 30 涨、后 30 跌 → 有回撤
+        ers = [0.5] * 30 + [-0.5] * 30
+        self._quote("A", gsz=1.0, dwjz=1.0)
+        self._hold(1, "A", 1000, 1000)
+        self._seed_60("A", ers)
+        c = db_mod.get_conn()
+        r = portfolio._compute_portfolio_risk(c, 1)
+        c.close()
+        self.assertIsNotNone(r["portfolio_max_drawdown"])
+        self.assertLess(r["portfolio_max_drawdown"], 0)
+        self.assertIsNotNone(r["peak_date"])
+        self.assertIsNotNone(r["trough_date"])
+
+    def test_insufficient_history_no_drawdown(self):
+        # 不足 60 天 → 组合回撤 null
+        for i in range(30):
+            self._nav("A", 29 - i, 1.0 + i * 0.001, 0.1)
+        self._quote("A", gsz=1.0, dwjz=1.0)
+        self._hold(1, "A", 1000, 1000)
+        c = db_mod.get_conn()
+        r = portfolio._compute_portfolio_risk(c, 1)
+        c.close()
+        self.assertIsNone(r["portfolio_max_drawdown"])
+
+    def test_risk_401(self):
+        code, _ = portfolio.get_portfolio_risk(Ctx(user_id=None))
+        self.assertEqual(code, 401)
+
+    def test_risk_route_registered(self):
+        self.assertTrue(any(p == "/api/portfolio/risk" for _, p, _ in portfolio.ROUTES))
 
 
 if __name__ == "__main__":
