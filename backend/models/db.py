@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS fund_profile (
     asset_alloc_cash  REAL,  -- 最新一期现金占净比 %
     holder_inst       REAL,  -- 最新一期机构持有比例 %（Data_holderStructure）
     holder_retail     REAL,  -- 最新一期个人持有比例 %
+    peer_percentile   REAL,  -- 最新同类百分位 %（PRD-06，Data_rateInSimilarPersent，越大越靠前）
+    peer_rank          INTEGER,  -- 最新同类排名（Data_rateInSimilarType 最新 y）
+    peer_total         INTEGER,  -- 同类总数（Data_rateInSimilarType 最新 sc）
     updated_at TEXT
 );
 
@@ -213,6 +216,13 @@ def _ensure_columns(conn):
                "holder_inst", "holder_retail"):
         if col not in prof_cols:
             conn.execute(f"ALTER TABLE fund_profile ADD COLUMN {col} REAL")
+    # PRD-06 同类百分位 + 排名 + 总数
+    if "peer_percentile" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_percentile REAL")
+    if "peer_rank" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_rank INTEGER")
+    if "peer_total" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_total INTEGER")
 
 
 def init_db(with_seed=True):
