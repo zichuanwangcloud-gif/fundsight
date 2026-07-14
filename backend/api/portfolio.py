@@ -133,6 +133,107 @@ def get_portfolio_summary(ctx):
     return summary
 
 
+# --------------------------------------------------------------------------- #
+# PRD-03 P1 组合层风险 —— 相关性矩阵 + 组合层最大回撤
+#
+# 相关性:各持仓基金近1年 equity_return_adj 两两 Pearson,样本重叠 < 60 → null。
+# 组合回撤:按当前持仓份额(静态)回放历史每日组合价值,算最大回撤 + 峰谷日期。
+# 任一持仓 nav_history < 60 天 → 组合回撤 null。读 nav_adj(02 复权)。
+# --------------------------------------------------------------------------- #
+def _pearson(xs, ys):
+    n = min(len(xs), len(ys))
+    if n < 2:
+        return None
+    xs, ys = xs[:n], ys[:n]
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    varx = sum((x - mx) ** 2 for x in xs)
+    vary = sum((y - my) ** 2 for y in ys)
+    if varx == 0 or vary == 0:
+        return None
+    cov = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    return round(cov / (varx ** 0.5 * vary ** 0.5), 2)
+
+
+def _compute_portfolio_risk(conn, user_id):
+    from datetime import date, timedelta
+    holds = conn.execute(
+        "SELECT fund_code, hold_amount FROM holding WHERE user_id=?", (user_id,)
+    ).fetchall()
+    codes = [h["fund_code"] for h in holds]
+    if not codes:
+        return {"correlation_matrix": {"codes": [], "matrix": []},
+                "portfolio_max_drawdown": None, "peak_date": None,
+                "trough_date": None, "note": "无持仓"}
+
+    start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    maps, shares = {}, {}
+    for h in holds:
+        c = h["fund_code"]
+        rows = conn.execute(
+            "SELECT nav_date, COALESCE(nav_adj, nav) AS nav, "
+            "COALESCE(equity_return_adj, equity_return) AS er "
+            "FROM fund_nav_history WHERE fund_code=? AND nav_date >= ? "
+            "AND nav IS NOT NULL ORDER BY nav_date", (c, start)
+        ).fetchall()
+        maps[c] = {r["nav_date"]: (r["nav"], r["er"]) for r in rows}
+        q = conn.execute(
+            "SELECT dwjz FROM fund_quote WHERE fund_code=?", (c,)).fetchone()
+        shares[c] = (h["hold_amount"] / q["dwjz"]) if (q and q["dwjz"] and h["hold_amount"]) else None
+
+    # 相关性矩阵(对角 1.0,样本重叠 < 60 → null)
+    n = len(codes)
+    corr = [[None] * n for _ in range(n)]
+    for i in range(n):
+        corr[i][i] = 1.0
+        for j in range(i + 1, n):
+            ci, cj = codes[i], codes[j]
+            common = sorted(set(maps[ci]) & set(maps[cj]))
+            pairs = [(maps[ci][d][1], maps[cj][d][1]) for d in common
+                     if maps[ci][d][1] is not None and maps[cj][d][1] is not None]
+            if len(pairs) < 60:
+                continue
+            p = _pearson([x / 100 for x, _ in pairs], [y / 100 for _, y in pairs])
+            corr[i][j] = corr[j][i] = p
+
+    # 组合层最大回撤(静态当前份额回放)
+    common_all = set(maps[codes[0]])
+    for c in codes[1:]:
+        common_all &= set(maps[c])
+    common_all = sorted(common_all)
+    mdd = peak_date = trough_date = None
+    if len(common_all) >= 60 and all(shares.get(c) for c in codes):
+        peak = peak_d = None
+        for d in common_all:
+            val = sum(shares[c] * maps[c][d][0] for c in codes)
+            if peak is None or val > peak:
+                peak, peak_d = val, d
+            if peak and peak > 0:
+                dd = (val - peak) / peak
+                if mdd is None or dd < mdd:
+                    mdd, trough_date, peak_date = dd, d, peak_d
+    portfolio_mdd = round(mdd * 100, 2) if mdd is not None else None
+    return {
+        "correlation_matrix": {"codes": codes, "matrix": corr},
+        "portfolio_max_drawdown": portfolio_mdd,
+        "peak_date": peak_date,
+        "trough_date": trough_date,
+        "note": None,
+    }
+
+
+def get_portfolio_risk(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    conn = get_conn()
+    try:
+        risk = _compute_portfolio_risk(conn, ctx.user_id)
+    finally:
+        conn.close()
+    return risk
+
+
 ROUTES = [
     ("GET", "/api/portfolio/summary", get_portfolio_summary),
+    ("GET", "/api/portfolio/risk", get_portfolio_risk),
 ]
