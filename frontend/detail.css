@@ -1,45 +1,53 @@
-/* 基金详情页 —— 基本面卡 + 净值折线/涨跌柱图 + 时间跨度切换。 */
+/* 基金详情页 —— 分区卡 + 可交互净值/盘中图(chart.js) + 跨度切换。消费 theme token。 */
 
-.detail-head { display: flex; justify-content: space-between; align-items: center;
-               margin-bottom: 16px; }
+.detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .detail-head .back { padding: 8px 14px; font-size: 13px; }
+.detail-head .primary { padding: 9px 16px; font-size: 13px; }
 
-.d-profile { background: #fff; border-radius: 12px; padding: 16px 18px; margin-bottom: 14px;
-             box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-.d-name { font-size: 17px; font-weight: 700; margin-bottom: 12px; }
-.d-name .fcode { color: #8a94a6; font-size: 12px; font-weight: normal; margin-left: 8px; }
-.d-grid { display: flex; flex-wrap: wrap; gap: 22px; font-size: 12px; color: #55607a; }
-.d-grid b { display: block; font-size: 15px; color: #1f2733; margin-top: 3px; }
+/* 分区卡:section-title 已在 theme;这里给详情页卡统一间距 */
+.d-profile, .d-chart-card {
+  background: var(--card); border-radius: var(--r-card); padding: 16px 18px; margin-bottom: 12px;
+  box-shadow: var(--sh-card);
+}
+.d-name {
+  display: flex; align-items: baseline; justify-content: flex-start; flex-wrap: wrap; gap: 8px;
+  font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 14px;
+}
+.d-name .fcode { color: var(--muted); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
-.d-chart-card { background: #fff; border-radius: 12px; padding: 16px 18px;
-                box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-.d-spans { display: flex; gap: 6px; margin-bottom: 12px; }
-.d-span { padding: 5px 12px; font-size: 12px; color: #8a94a6; border-radius: 8px;
-          cursor: pointer; background: #f4f6f9; }
-.d-span:hover { color: #3b7cff; }
-.d-span.active { color: #fff; background: #3b7cff; font-weight: 600; }
+/* 详情页宫格统一为 theme 的 stat-grid 风格 */
+.d-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 14px 18px;
+  font-size: 12px; color: var(--muted);
+}
+.d-grid > div b { display: block; font-size: 16px; color: var(--ink); margin-top: 4px;
+  font-variant-numeric: tabular-nums; font-weight: 700; }
 
-.d-chart-svg { display: block; width: 100%; }
-.d-chart-foot { display: flex; justify-content: space-between; align-items: baseline;
-                margin-top: 8px; font-size: 12px; }
-.d-chart-lbl { font-size: 14px; font-weight: 700; }
-.d-chart-legend { color: #a0a8b8; font-size: 11px; }
+/* 跨度切换 → 胶囊 */
+.d-spans { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.d-span {
+  padding: 6px 13px; font-size: 12px; color: var(--muted); border-radius: var(--r-pill);
+  cursor: pointer; background: #eef1f7; transition: background .15s, color .15s; user-select: none;
+}
+.d-span:hover { background: #e4e8f1; }
+.d-span.active { color: #fff; background: var(--brand); font-weight: 600; }
 
-.d-loading, .d-empty { text-align: center; color: #a0a8b8; padding: 40px 0; font-size: 13px; }
-
-/* M10A 成本曲线卡 + 归因卡 —— 复用 d-chart-card 容器,点列 SVG。 */
+/* M10A 成本曲线 / 归因点列宫格 */
 .d-attr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.d-attr-cell { background: #f8fafc; border-radius: 10px; padding: 10px 12px; }
-.d-attr-h { display: flex; justify-content: space-between; align-items: baseline;
-            font-size: 12px; color: #55607a; margin-bottom: 6px; }
-.d-attr-h b { font-size: 14px; color: #1f2733; }
-.d-attr-empty { text-align: center; color: #a0a8b8; padding: 18px 0; font-size: 12px; }
-.d-attr-foot { text-align: right; font-size: 11px; color: #a0a8b8; margin-top: 2px; }
+.d-attr-cell { background: var(--card-2); border-radius: var(--r-sm); padding: 10px 12px; }
+.d-attr-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.d-attr-h b { font-size: 14px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.d-attr-empty { text-align: center; color: var(--faint); padding: 18px 0; font-size: 12px; }
+.d-attr-foot { text-align: right; font-size: 11px; color: var(--faint); margin-top: 2px; }
 @media (max-width: 640px) { .d-attr-grid { grid-template-columns: 1fr; } }
 
-/* 今日实时涨幅折线卡 —— 复用 .d-chart-card 容器,加盘中/已收盘小标签 */
-.d-intraday-tag { display: inline-block; font-size: 11px; font-weight: 600;
-                  padding: 2px 8px; border-radius: 6px; margin-left: 8px;
-                  vertical-align: middle; }
-.d-intraday-tag.live { color: #e0483d; background: #fdecea; }
-.d-intraday-tag.closed { color: #8a94a6; background: #f4f6f9; }
+/* 点列图(成本曲线 / 归因)仍用 d-chart-* 类:补齐样式,与新 chart-foot 并存 */
+.d-chart-svg { display: block; width: 100%; }
+.d-chart-foot { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; font-size: 12px; }
+.d-chart-lbl { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.d-chart-legend { color: var(--faint); font-size: 11px; }
+
+/* 盘中 / 已收盘小标签 */
+.d-intraday-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: var(--r-pill); vertical-align: middle; }
+.d-intraday-tag.live { color: var(--up); background: var(--up-bg); }
+.d-intraday-tag.closed { color: var(--muted); background: var(--card-2); }

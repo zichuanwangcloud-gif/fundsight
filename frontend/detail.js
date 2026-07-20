@@ -104,62 +104,28 @@ function renderReturns(periods) {
     </div>`;
 }
 
-// 净值折线 + 涨跌幅柱状层的放大版 SVG。points: [{date, nav, equity_return}]
-// 复用 portfolio.js:sparkline 的 viewBox + polyline 思路，加一层柱状底图。
-function detailChart(points) {
-  if (!points || points.length < 2) return "";
-  const W = 640, H = 220, padX = 8, padTop = 10, padBottom = 46;
-  const navH = H - padTop - padBottom;      // 折线区高度
-  const barH = 34;                          // 涨跌柱区高度(底部)
-  const barTop = H - barH;
-  const n = points.length;
-
-  const navs = points.map(p => p.v_nav);
-  const min = Math.min(...navs), max = Math.max(...navs);
-  const span = max - min || 1;
-  const xAt = i => padX + (W - 2 * padX) * i / (n - 1);
-  const yAt = v => padTop + navH * (1 - (v - min) / span);
-
-  const linePts = points.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.v_nav).toFixed(1)}`);
-  const up = points[n - 1].v_nav >= points[0].v_nav;
-  const lineColor = up ? "#e0483d" : "#16a34a";
-  const pct = (((points[n - 1].v_nav - points[0].v_nav) / points[0].v_nav) * 100).toFixed(2);
-
-  // 涨跌柱：以 equity_return 为高度，正负分色，居中于柱状带
-  const rets = points.map(p => p.v_ret).filter(v => v != null);
-  const maxAbsRet = Math.max(1, ...rets.map(v => Math.abs(v)));
-  const barW = Math.max(1, (W - 2 * padX) / n - 1);
-  const barMid = barTop + barH / 2;
-  const bars = points.map((p, i) => {
-    if (p.v_ret == null) return "";
-    const x = xAt(i) - barW / 2;
-    const h = (Math.abs(p.v_ret) / maxAbsRet) * (barH / 2 - 2);
-    const y = p.v_ret >= 0 ? barMid - h : barMid;
-    const color = p.v_ret >= 0 ? "#e0483d" : "#16a34a";
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}"
-              height="${Math.max(0.5, h).toFixed(1)}" fill="${color}" opacity="0.75"/>`;
-  }).join("");
-
-  return `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
-             class="d-chart-svg">
-      <line x1="0" y1="${barMid.toFixed(1)}" x2="${W}" y2="${barMid.toFixed(1)}"
-            stroke="#e2e6ee" stroke-width="1"/>
-      ${bars}
-      <polyline fill="none" stroke="${lineColor}" stroke-width="1.8"
-                points="${linePts.join(" ")}" stroke-linejoin="round"/>
-    </svg>
-    <div class="d-chart-foot">
-      <span class="d-chart-lbl ${cls(pct)}">区间涨跌 ${sign(pct)}%</span>
-      <span class="d-chart-legend">上方折线:净值 · 下方柱状:每日涨跌幅</span>
-    </div>`;
-}
-
+// 净值走势 —— 可交互折线(chart.js):坐标轴 + 网格 + 十字准星 + 悬停 tooltip。
+// series: [{date, nav, equity_return}]。当日涨跌幅进 tooltip,不再画柱状层。
 function renderDetailChart(series) {
   const box = $("#d-chart");
-  if (!series.length) { box.innerHTML = `<div class="d-empty">暂无历史净值数据</div>`; return; }
-  const points = series.map(p => ({ v_nav: p.nav, v_ret: p.equity_return, date: p.date }));
-  const svg = detailChart(points);
-  box.innerHTML = svg || `<div class="d-empty">数据点不足,暂无法画图</div>`;
+  if (!series || !series.length) { box.innerHTML = `<div class="d-empty">暂无历史净值数据</div>`; return; }
+  const points = series.map(p => {
+    const ret = p.equity_return;
+    const retLine = ret == null ? ""
+      : `<div>当日 <span class="${cls(ret)}">${sign(+ret.toFixed(2))}%</span></div>`;
+    return {
+      label: p.date,
+      value: p.nav,
+      tip: `<b>净值 ${p.nav != null ? (+p.nav).toFixed(4) : "—"}</b>${retLine}`,
+    };
+  });
+  renderLineChart(box, points, {
+    height: 232,
+    fmtValue: v => (+v).toFixed(3),
+    fmtLabel: d => String(d || "").slice(5),
+    footRight: `<span class="legend">悬停查看每日净值 · 当日涨跌</span>`,
+    emptyHint: "数据点不足,暂无法画图",
+  });
 }
 
 async function addToHoldings() {
@@ -326,7 +292,8 @@ function renderIntradayChart(d) {
   const tag = open
     ? '<span class="d-intraday-tag live">盘中实时</span>'
     : '<span class="d-intraday-tag closed">已收盘</span>';
-  box.innerHTML = `<div class="d-name">今日实时涨幅 ${tag}</div>${intradaySvg(ticks, d)}`;
+  box.innerHTML = `<div class="d-name">今日实时涨幅 ${tag}</div><div id="d-intraday-chart"></div>`;
+  renderIntradaySvg($("#d-intraday-chart"), ticks, d);
   // 盘中开轮询;收盘保持定格,不再轮询(图一直展示到次日开盘)
   if (open && !_intradayTimer) {
     _intradayTimer = setInterval(loadIntraday, 30000);
@@ -336,43 +303,35 @@ function renderIntradayChart(d) {
   }
 }
 
-function intradaySvg(ticks, d) {
-  if (!ticks || ticks.length < 1) {
+// 今日盘中实时涨幅 —— 可交互折线(chart.js),零轴居中、红涨绿跌,悬停看每个时点估值。
+function renderIntradaySvg(container, ticks, d) {
+  if (!container) return;
+  const pts = (ticks || []).filter(t => t.gszzl != null);
+  if (pts.length < 1) {
     const hint = (d && d.market_open) ? "今日暂无估值点,开盘后自动更新" : "今日暂无盘中估值数据";
-    return `<div class="d-empty">${hint}</div>`;
+    container.innerHTML = `<div class="d-empty">${hint}</div>`;
+    return;
   }
-  const pts = ticks.filter(t => t.gszzl != null);
-  if (pts.length < 1) return `<div class="d-empty">估值数据不足</div>`;
-  const W = 640, H = 200, padX = 10, padTop = 14, padBottom = 30;
-  const h = H - padTop - padBottom;
-  const n = pts.length;
-  const maxAbs = Math.max(...pts.map(t => Math.abs(t.gszzl)), 0.5);  // 至少 ±0.5% 美观
-  const yMin = -maxAbs, yMax = maxAbs, span = yMax - yMin;
-  const xAt = i => padX + (W - 2 * padX) * (n === 1 ? 0.5 : i / (n - 1));
-  const yAt = v => padTop + h * (1 - (v - yMin) / span);
-  const zeroY = yAt(0);
-  const last = pts[n - 1].gszzl;
-  const color = last >= 0 ? "#e0483d" : "#16a34a";
-  const linePts = pts.map((t, i) => `${xAt(i).toFixed(1)},${yAt(t.gszzl).toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1].gszzl;
   const hi = Math.max(...pts.map(t => t.gszzl));
   const lo = Math.min(...pts.map(t => t.gszzl));
-  const fmtPct = v => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
-  // 最新点高亮
-  const dot = `<circle cx="${xAt(n-1).toFixed(1)}" cy="${yAt(last).toFixed(1)}" r="3.4" fill="${color}"/>`;
-  // 首尾时间标签
-  const t0 = pts[0].quote_time || "";
-  const t1 = pts[n-1].quote_time || "";
-  return `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="d-chart-svg">
-      <line x1="0" y1="${zeroY.toFixed(1)}" x2="${W}" y2="${zeroY.toFixed(1)}" stroke="#e2e6ee" stroke-width="1" stroke-dasharray="4 3"/>
-      <polyline fill="none" stroke="${color}" stroke-width="1.8" points="${linePts}" stroke-linejoin="round"/>
-      ${dot}
-      <text x="${padX}" y="${(H-8).toFixed(1)}" font-size="9" fill="#a0a8b8">${t0.slice(0,5)}</text>
-      <text x="${(W-padX).toFixed(1)}" y="${(H-8).toFixed(1)}" font-size="9" fill="#a0a8b8" text-anchor="end">${t1.slice(0,5)}</text>
-    </svg>
-    <div class="d-chart-foot">
-      <span class="d-chart-lbl ${cls(last)}">最新 ${sign(last)}%</span>
-      <span class="d-chart-legend">最高 ${fmtPct(hi)} · 最低 ${fmtPct(lo)} · 零轴虚线</span>
-    </div>`;
+  const fmtPct = v => (v >= 0 ? "+" : "") + (+v).toFixed(2) + "%";
+  const points = pts.map(t => ({
+    label: t.quote_time || "",
+    value: t.gszzl,
+    tip: `<b class="${cls(t.gszzl)}">${fmtPct(t.gszzl)}</b>`,
+  }));
+  renderLineChart(container, points, {
+    height: 200,
+    zeroLine: true,
+    minSpan: 0.5,
+    color: last >= 0 ? "#e5432f" : "#0f9d58",
+    fmtValue: v => (v >= 0 ? "+" : "") + (+v).toFixed(1) + "%",
+    fmtLabel: t => String(t || "").slice(0, 5),
+    footLeft: `<span class="lbl ${cls(last)}">最新 ${sign(+last.toFixed(2))}%</span>`,
+    footRight: `<span class="legend">最高 ${fmtPct(hi)} · 最低 ${fmtPct(lo)} · 零轴虚线</span>`,
+    emptyHint: "估值数据不足",
+  });
 }
 
 // 风险概览四宫格 —— 波动率/最大回撤/夏普/卡玛(点状,不画走势曲线)。

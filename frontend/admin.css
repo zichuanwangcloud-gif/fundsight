@@ -1,34 +1,32 @@
-/* 「系统状态」页 —— 抓取任务可观测面板(M9-B) */
+/* 「系统状态」页 —— 抓取任务可观测面板。消费 theme token。 */
 .admin-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .admin-head h2 { font-size: 18px; }
-.admin-head .ghost { background: #fff; border: 1px solid #d6dbe4; border-radius: 8px;
-                    padding: 6px 14px; font-size: 13px; color: #55607a; cursor: pointer; }
-.admin-head .ghost:hover { border-color: #3b7cff; color: #3b7cff; }
-.admin-hint { color: #8a94a6; font-size: 13px; margin-bottom: 18px; }
-.admin-sec { font-size: 14px; color: #55607a; margin: 18px 0 10px; }
-.admin-muted { color: #a0a8b8; font-weight: normal; font-size: 12px; }
+.admin-head .ghost {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 7px 14px; font-size: 13px; color: var(--ink-2); cursor: pointer; transition: border-color .15s, color .15s;
+}
+.admin-head .ghost:hover { border-color: var(--brand); color: var(--brand); }
+.admin-hint { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+.admin-sec { font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 20px 0 10px; }
+.admin-muted { color: var(--faint); font-weight: normal; font-size: 12px; }
 
-.admin-tbl { width: 100%; border-collapse: collapse; background: #fff;
-             border-radius: 12px; overflow: hidden;
-             box-shadow: 0 1px 3px rgba(0,0,0,.05); font-size: 13px; }
-.admin-tbl th, .admin-tbl td { padding: 9px 12px; text-align: left;
-                               border-bottom: 1px solid #f0f2f6; }
-.admin-tbl thead th { background: #f7f8fb; color: #8a94a6; font-weight: 600;
-                      font-size: 12px; }
+.admin-tbl {
+  width: 100%; border-collapse: collapse; background: var(--card);
+  border-radius: var(--r-card); overflow: hidden; box-shadow: var(--sh-card); font-size: 13px;
+}
+.admin-tbl th, .admin-tbl td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line-2); }
+.admin-tbl thead th { background: var(--card-2); color: var(--muted); font-weight: 600; font-size: 12px; }
 .admin-tbl tbody tr:last-child td { border-bottom: none; }
-.admin-tbl td.admin-err { color: #c0403a; font-size: 12px; max-width: 220px;
-                          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-tbl td.admin-err { color: var(--up); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-tbl td { font-variant-numeric: tabular-nums; }
 
-.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
-         border-radius: 6px; }
-.badge.ok { background: #e7f7ee; color: #16a34a; }
-.badge.fail { background: #fdecec; color: #e0483d; }
-
-/* 告警区:连续失败未恢复任务(M10C) */
+/* 告警区:连续失败未恢复任务 */
 .admin-alerts { display: flex; flex-direction: column; gap: 10px; }
-.alert-item { background: #fff5f5; border: 1px solid #f3c9c6; border-left: 3px solid #e0483d;
-              border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.alert-item {
+  background: var(--up-soft); border: 1px solid #f3c9c6; border-left: 3px solid var(--up);
+  border-radius: var(--r-card); padding: 12px 14px; box-shadow: var(--sh-card);
+}
 .alert-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.alert-task { font-weight: 600; font-size: 13px; color: #2c3344; }
-.alert-funds { font-size: 13px; color: #46506a; word-break: break-all; }
-.alert-err { margin-top: 6px; max-width: none; white-space: normal; }
+.alert-task { font-weight: 700; font-size: 13px; color: var(--ink); }
+.alert-funds { font-size: 13px; color: var(--ink-2); word-break: break-all; }
+.alert-err { margin-top: 6px; max-width: none; white-space: normal; color: var(--up); font-size: 12px; }

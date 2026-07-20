@@ -1,10 +1,7 @@
-/* 「我的持仓」页专属样式 —— 线路 D 追加。基础布局/颜色沿用 app.css。 */
-.card .detail-link { margin-top: 8px; font-size: 12px; }
-.card .detail-link a { color: #3b7cff; text-decoration: none; }
-.card .detail-link a:hover { text-decoration: underline; }
+/* 「我的持仓」页专属样式 —— 资产配置饼图图例。基础布局/颜色见 theme.css / app.css。 */
 
-/* 资产配置饼图(PRD-03) */
-.alloc-row { display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; }
-.alloc-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: #586076; }
-.leg-item { display: inline-flex; align-items: center; gap: 4px; }
-.leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+/* 资产配置饼图行 */
+.alloc-row { display: flex; align-items: center; gap: 18px; padding: 6px 2px 4px; flex-wrap: wrap; }
+.alloc-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 12px; color: var(--ink-2); }
+.leg-item { display: inline-flex; align-items: center; gap: 5px; }
+.leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
