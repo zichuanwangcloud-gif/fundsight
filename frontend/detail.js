@@ -30,6 +30,7 @@ function renderDetail(view, code) {
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
     <div id="d-intraday" class="d-chart-card"><div class="d-loading">实时涨幅加载中…</div></div>
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
+    <div id="d-risk" class="d-profile"><div class="d-loading">风险指标加载中…</div></div>
     <div id="d-cost-curve" class="d-chart-card" hidden><div class="d-loading">成本曲线加载中…</div></div>
     <div id="d-attribution" class="d-chart-card" hidden><div class="d-loading">归因加载中…</div></div>
     <div class="d-chart-card">
@@ -63,6 +64,7 @@ async function loadDetail(chartOnly) {
         .catch(() => { const b = $("#d-returns"); if (b) b.innerHTML = ""; });
       loadCostCurve();
       loadAttribution();
+      loadRisk();
     }
     renderDetailChart(d.series || []);
   } catch {
@@ -371,6 +373,37 @@ function intradaySvg(ticks, d) {
       <span class="d-chart-lbl ${cls(last)}">最新 ${sign(last)}%</span>
       <span class="d-chart-legend">最高 ${fmtPct(hi)} · 最低 ${fmtPct(lo)} · 零轴虚线</span>
     </div>`;
+}
+
+// 风险概览四宫格 —— 波动率/最大回撤/夏普/卡玛(点状,不画走势曲线)。
+// 数据来自 GET /api/fund/{code}/risk(PRD-01),近1年基于复权净值(02)。
+function renderRisk(r) {
+  const box = $("#d-risk");
+  if (!box || !r) return;
+  const fmt = v => v == null ? "—" : `<b>${v}</b>`;
+  const fmtPct = v => v == null ? "—" : `<b class="${cls(v)}">${v}%</b>`;
+  box.innerHTML = `
+    <div class="d-name">风险概览<span class="fcode">近1年 · 点状统计</span></div>
+    <div class="d-grid">
+      <div>年化波动率<b>${fmtPct(r.volatility)}</b></div>
+      <div>最大回撤<b>${fmtPct(r.max_drawdown)}</b></div>
+      <div>夏普比率<b>${fmt(r.sharpe)}</b></div>
+      <div>卡玛比率<b>${fmt(r.calmar)}</b></div>
+    </div>
+    ${r.max_drawdown != null && r.max_drawdown_peak_date
+      ? `<div class="d-chart-legend">最大回撤峰值 ${r.max_drawdown_peak_date} → 谷底 ${r.max_drawdown_trough_date || "—"}</div>` : ""}
+    ${r.note ? `<div class="d-chart-legend">${r.note}</div>` : ""}`;
+}
+
+async function loadRisk() {
+  const box = $("#d-risk");
+  if (!box) return;
+  try {
+    const r = await getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/risk");
+    renderRisk(r);
+  } catch {
+    box.innerHTML = `<div class="d-name">风险概览</div><div class="d-empty">风险数据暂缺</div>`;
+  }
 }
 
 registerPage("fund", renderDetail);

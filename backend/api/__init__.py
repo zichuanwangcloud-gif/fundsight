@@ -20,5 +20,13 @@ from backend.api import holdings_ext; ALL_ROUTES += holdings_ext.ROUTES
 from backend.api import sync_status; ALL_ROUTES += sync_status.ROUTES
 from backend.api import notifications; ALL_ROUTES += notifications.ROUTES
 from backend.api import returns; ALL_ROUTES += returns.ROUTES
+# PRD-03 组合层汇总:资产配置占比 + 持仓集中度(按 user_id 隔离)
+from backend.api import portfolio; ALL_ROUTES += portfolio.ROUTES  # noqa: E401,E402
+# PRD-04 定投模拟(回测 + 一次性对比)
+from backend.api import dca; ALL_ROUTES += dca.ROUTES  # noqa: E401,E402
+# PRD-07 预期深化:年化目标/回本所需涨幅/达成时间推算(按 user_id 隔离)
+from backend.api import expectation; ALL_ROUTES += expectation.ROUTES  # noqa: E401,E402
+# PRD-06 基准对比:同类百分位/排名(Alpha/Beta 待基准数据源)
+from backend.api import benchmark; ALL_ROUTES += benchmark.ROUTES  # noqa: E401,E402
 # M10B 线路 B 鉴权加固:登录审计只读接口(按 user_id 隔离,越权 404)
 from backend.api import login_audit; ALL_ROUTES += login_audit.ROUTES  # noqa: E401,E402

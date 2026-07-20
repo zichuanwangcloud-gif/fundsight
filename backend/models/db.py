@@ -45,14 +45,19 @@ CREATE TABLE IF NOT EXISTS holding (
     target_price  REAL,   -- 目标净值
     stop_profit   REAL,   -- 止盈线 %
     stop_loss     REAL,   -- 止损线 %
+    trailing_stop_pct REAL,  -- 移动止盈回撤 %(PRD-07,从 peak_nav 回撤触发)
+    peak_nav    REAL,   -- 持仓期最高净值(scheduler 日更,只增不减)
     created_at    TEXT
 );
 
 -- 历史净值序列：走势图用，抓取层日更写入，业务层只读
 CREATE TABLE IF NOT EXISTS fund_nav_history (
-    fund_code  TEXT NOT NULL,
-    nav_date   TEXT NOT NULL,   -- YYYY-MM-DD
-    nav        REAL,            -- 单位净值
+    fund_code         TEXT NOT NULL,
+    nav_date         TEXT NOT NULL,   -- YYYY-MM-DD
+    nav              REAL,            -- 单位净值（分红日会断崖跳跌）
+    equity_return    REAL,            -- 单位净值口径当日涨跌幅 %（分红日假大跌）
+    nav_adj          REAL,            -- 累计净值（后复权，分红日不跳变；PRD-02）
+    equity_return_adj REAL,           -- 复权口径当日涨跌幅 %（消除分红假大跌；PRD-02）
     PRIMARY KEY (fund_code, nav_date)
 );
 
@@ -67,6 +72,14 @@ CREATE TABLE IF NOT EXISTS fund_profile (
     syl_3y     REAL,   -- pingzhongdata 原字段：近3年收益率 %
     syl_6y     REAL,   -- pingzhongdata 原字段：成立以来收益率 %
     syl_1y     REAL,   -- pingzhongdata 原字段：近1月收益率 %
+    asset_alloc_stock REAL,  -- 最新一期股票占净比 %（PRD-05，Data_assetAllocation）
+    asset_alloc_bond  REAL,  -- 最新一期债券占净比 %
+    asset_alloc_cash  REAL,  -- 最新一期现金占净比 %
+    holder_inst       REAL,  -- 最新一期机构持有比例 %（Data_holderStructure）
+    holder_retail     REAL,  -- 最新一期个人持有比例 %
+    peer_percentile   REAL,  -- 最新同类百分位 %（PRD-06，Data_rateInSimilarPersent，越大越靠前）
+    peer_rank          INTEGER,  -- 最新同类排名（Data_rateInSimilarType 最新 y）
+    peer_total         INTEGER,  -- 同类总数（Data_rateInSimilarType 最新 sc）
     updated_at TEXT
 );
 
@@ -169,6 +182,20 @@ CREATE TABLE IF NOT EXISTS fund_quote_tick (
     PRIMARY KEY (fund_code, quote_date, quote_time)
 );
 CREATE INDEX IF NOT EXISTS idx_quote_tick_date ON fund_quote_tick(quote_date);
+
+-- 定投计划:用户设定每月/周定投,到点站内提醒(PRD-04 P1)
+CREATE TABLE IF NOT EXISTS dca_plan (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    fund_code   TEXT NOT NULL,
+    per_amount  REAL NOT NULL,
+    freq        TEXT NOT NULL,        -- monthly | biweekly | weekly
+    invest_day  INTEGER NOT NULL,     -- 每月几号(1-28)或每周几(0-6)
+    next_date   TEXT NOT NULL,        -- 下次触发日(YYYY-MM-DD)
+    active      INTEGER DEFAULT 1,
+    created_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dca_plan_user ON dca_plan(user_id, active);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
@@ -209,6 +236,31 @@ def _ensure_columns(conn):
     hist_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_nav_history)")}
     if "equity_return" not in hist_cols:
         conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return REAL")
+    # PRD-02 分红复权：累计净值（后复权）+ 复权涨跌幅，消除分红日假大跌
+    if "nav_adj" not in hist_cols:
+        conn.execute("ALTER TABLE fund_nav_history ADD COLUMN nav_adj REAL")
+    if "equity_return_adj" not in hist_cols:
+        conn.execute("ALTER TABLE fund_nav_history ADD COLUMN equity_return_adj REAL")
+
+    # PRD-05 基本面深化：资产配置(股/债/现金占净比) + 持有人结构(机构/个人)
+    prof_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_profile)")}
+    for col in ("asset_alloc_stock", "asset_alloc_bond", "asset_alloc_cash",
+               "holder_inst", "holder_retail"):
+        if col not in prof_cols:
+            conn.execute(f"ALTER TABLE fund_profile ADD COLUMN {col} REAL")
+    # PRD-06 同类百分位 + 排名 + 总数
+    if "peer_percentile" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_percentile REAL")
+    if "peer_rank" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_rank INTEGER")
+    if "peer_total" not in prof_cols:
+        conn.execute("ALTER TABLE fund_profile ADD COLUMN peer_total INTEGER")
+    # PRD-07 移动止盈:holding 加 trailing_stop_pct / peak_nav
+    hold_cols = {r[1] for r in conn.execute("PRAGMA table_info(holding)")}
+    if "trailing_stop_pct" not in hold_cols:
+        conn.execute("ALTER TABLE holding ADD COLUMN trailing_stop_pct REAL")
+    if "peak_nav" not in hold_cols:
+        conn.execute("ALTER TABLE holding ADD COLUMN peak_nav REAL")
 
 
 def init_db(with_seed=True):

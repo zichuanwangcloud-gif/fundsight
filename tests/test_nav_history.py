@@ -57,6 +57,29 @@ class TestFetchNavHistory(unittest.TestCase):
         mock_urlopen.return_value = _mock_response('var fS_name = "x";')
         self.assertIsNone(nav_history.fetch_nav_history("020608"))
 
+    @patch("backend.datasource.nav_history.urllib.request.urlopen")
+    def test_parses_accworth_as_arrays(self, mock_urlopen):
+        # 天天基金真实报文里 Data_ACWorthTrend 是 [[ts,y],...] 二元数组,
+        # 不是字典数组。曾因对 list 调 .get() 抛 'list' object has no attribute 'get',
+        # 导致历史净值刷新整体失败。此用例固化该格式不再回归。
+        js = (
+            'var Data_netWorthTrend = ['
+            '{"x":1710201600000,"y":1.0000,"equityReturn":0},'
+            '{"x":1710288000000,"y":1.0200,"equityReturn":2.0}'
+            '];'
+            'var Data_ACWorthTrend = ['
+            '[1710201600000,1.0000],'
+            '[1710288000000,1.0200]'
+            '];'
+        )
+        mock_urlopen.return_value = _mock_response(js)
+        series = nav_history.fetch_nav_history("020608")
+        self.assertIsNotNone(series)
+        self.assertEqual(len(series), 2)
+        # 第三项累计净值(nav_adj)必须被正确解析,而非 None
+        self.assertEqual(series[0][2], 1.0000)
+        self.assertEqual(series[-1][2], 1.0200)
+
 
 class TestRefreshNavHistory(unittest.TestCase):
     def setUp(self):

@@ -790,3 +790,163 @@ def start_alert_dispatcher(interval_hours=6, run_now=True):
     t = threading.Thread(target=_loop, name="alert-dispatcher", daemon=True)
     t.start()
     return t
+
+
+# ---- 移动止盈:日更 peak_nav + 回撤触发通知(PRD-07) ----
+
+def _check_trailing_stops():
+    """巡检设了移动止盈的持仓:更新 peak_nav(只增不减),回撤到线即推通知。
+
+    当前价取 fund_quote.nav(收盘)回落 gsz(盘中)。触发用更新前的旧 peak:
+    先判断触发再更新 peak,避免本次新高被记为触发。通知去重
+    (同 user+fund+trailing_stop_hit 未读跳过)。返回触发条数。
+    """
+    conn = None
+    triggered = 0
+    try:
+        conn = get_conn()
+        rows = conn.execute(
+            "SELECT h.id, h.user_id, h.fund_code, h.trailing_stop_pct, h.peak_nav, "
+            "q.nav, q.gsz FROM holding h "
+            "LEFT JOIN fund_quote q ON q.fund_code = h.fund_code "
+            "WHERE h.trailing_stop_pct IS NOT NULL AND h.trailing_stop_pct > 0"
+        ).fetchall()
+        for r in rows:
+            cur = r["nav"] if r["nav"] is not None else r["gsz"]
+            if cur is None:
+                continue
+            peak = r["peak_nav"]
+            trailing = r["trailing_stop_pct"]
+            if peak is not None and peak > 0:
+                line = peak * (1 - trailing / 100)
+                if cur <= line:
+                    exists = conn.execute(
+                        "SELECT 1 FROM notification WHERE user_id=? AND fund_code=? "
+                        "AND kind='trailing_stop_hit' AND read_at IS NULL",
+                        (r["user_id"], r["fund_code"]),
+                    ).fetchone()
+                    if not exists:
+                        conn.execute(
+                            "INSERT INTO notification(user_id,fund_code,kind,message,created_at) "
+                            "VALUES(?,?,?,?,datetime('now','localtime'))",
+                            (r["user_id"], r["fund_code"], "trailing_stop_hit",
+                             f"{r['fund_code']} 从高点 {round(peak, 4)} "
+                             f"回撤 {trailing}% 触发移动止盈"),
+                        )
+                        triggered += 1
+            if peak is None or cur > peak:
+                conn.execute(
+                    "UPDATE holding SET peak_nav=? WHERE id=?", (cur, r["id"]))
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 移动止盈巡检失败: {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return triggered
+
+
+def start_trailing_stop_check(interval_hours=1, run_now=True):
+    """启动移动止盈巡检 daemon(默认 1h),返回该线程。
+
+    更新持仓 peak_nav(只增不减),回撤到 trailing_stop_pct 即推 trailing_stop_hit
+    站内通知(去重)。仅应用内 notification,不做 Web Push(红线)。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _check_trailing_stops()
+        while True:
+            time.sleep(interval)
+            _check_trailing_stops()
+
+    t = threading.Thread(target=_loop, name="trailing-stop-check", daemon=True)
+    t.start()
+    return t
+
+
+# ---- 定投计划:到点站内提醒 + next_date 滚动(PRD-04 P1) ----
+
+def _check_dca_plans():
+    """巡检到期定投计划:next_date<=today 推 dca_due 通知,next_date 滚到下一期。
+
+    通知去重(同 user+fund+dca_due 未读跳过)。返回触发条数。
+    """
+    from datetime import date as _date, timedelta as _td
+    conn = None
+    triggered = 0
+    try:
+        conn = get_conn()
+        today = _date.today().isoformat()
+        rows = conn.execute(
+            "SELECT id, user_id, fund_code, per_amount, freq, invest_day, next_date "
+            "FROM dca_plan WHERE active=1 AND next_date <= ?", (today,)
+        ).fetchall()
+        for r in rows:
+            exists = conn.execute(
+                "SELECT 1 FROM notification WHERE user_id=? AND fund_code=? "
+                "AND kind='dca_due' AND read_at IS NULL",
+                (r["user_id"], r["fund_code"]),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO notification(user_id,fund_code,kind,message,created_at) "
+                    "VALUES(?,?,?,?,datetime('now','localtime'))",
+                    (r["user_id"], r["fund_code"], "dca_due",
+                     f"该给 {r['fund_code']} 定投 ¥{r['per_amount']} 了"),
+                )
+                triggered += 1
+            try:
+                cur = _date.fromisoformat(r["next_date"])
+            except (ValueError, TypeError):
+                continue
+            freq, inv = r["freq"], r["invest_day"]
+            if freq == "monthly":
+                y, m = cur.year, cur.month
+                m += 1
+                if m > 12:
+                    y, m = y + 1, 1
+                try:
+                    nxt = _date(y, m, inv)
+                except ValueError:
+                    nxt = _date(y, m, 28)
+            elif freq == "biweekly":
+                nxt = cur + _td(days=14)
+            else:
+                nxt = cur + _td(days=7)
+            conn.execute("UPDATE dca_plan SET next_date=? WHERE id=?",
+                         (nxt.isoformat(), r["id"]))
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[scheduler] 定投计划巡检失败: {type(e).__name__} {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return triggered
+
+
+def start_dca_plan_check(interval_hours=24, run_now=True):
+    """启动定投计划巡检 daemon(默认日更),返回该线程。
+
+    到点(next_date<=today)推 dca_due 站内通知(去重),next_date 滚动下一期。
+    仅应用内 notification,不做 Web Push(红线)。
+    """
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _check_dca_plans()
+        while True:
+            time.sleep(interval)
+            _check_dca_plans()
+
+    t = threading.Thread(target=_loop, name="dca-plan-check", daemon=True)
+    t.start()
+    return t

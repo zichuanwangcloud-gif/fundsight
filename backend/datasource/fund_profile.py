@@ -100,6 +100,58 @@ def fetch_profile(code):
             if series and isinstance(series[-1], dict):
                 scale = _f(series[-1].get("y"))
 
+        # 资产配置最新一期(股票/债券/现金占净比)——PRD-05
+        asset_alloc_stock = asset_alloc_bond = asset_alloc_cash = None
+        alloc = _json_field(raw, "Data_assetAllocation")
+        if isinstance(alloc, dict):
+            for s in (alloc.get("series") or []):
+                data = s.get("data") or []
+                if not data:
+                    continue
+                last = _f(data[-1])
+                nm = s.get("name", "")
+                if "股票" in nm:
+                    asset_alloc_stock = last
+                elif "债券" in nm:
+                    asset_alloc_bond = last
+                elif "现金" in nm:
+                    asset_alloc_cash = last
+        # 持有人结构最新一期(机构/个人)——PRD-05
+        holder_inst = holder_retail = None
+        holder = _json_field(raw, "Data_holderStructure")
+        if isinstance(holder, dict):
+            for s in (holder.get("series") or []):
+                data = s.get("data") or []
+                if not data:
+                    continue
+                last = _f(data[-1])
+                nm = s.get("name", "")
+                if "机构" in nm:
+                    holder_inst = last
+                elif "个人" in nm:
+                    holder_retail = last
+
+        # 同类百分位 + 排名 + 总数——PRD-06
+        peer_percentile = peer_rank = peer_total = None
+        peer_pct = _json_field(raw, "Data_rateInSimilarPersent")
+        if isinstance(peer_pct, list) and peer_pct:
+            last = peer_pct[-1]
+            if isinstance(last, list) and len(last) >= 2:
+                peer_percentile = _f(last[1])
+        peer_type = _json_field(raw, "Data_rateInSimilarType")
+        if isinstance(peer_type, list) and peer_type:
+            last = peer_type[-1]
+            if isinstance(last, dict):
+                y = _f(last.get("y"))
+                sc = last.get("sc")
+                if y is not None:
+                    peer_rank = int(y)
+                if sc is not None:
+                    try:
+                        peer_total = int(sc)
+                    except (TypeError, ValueError):
+                        peer_total = None
+
         if not name and manager is None and scale is None and rate is None:
             return None  # 报文完全不含预期字段,视为解析失败
 
@@ -113,6 +165,14 @@ def fetch_profile(code):
             "syl_3y": syl_3y,
             "syl_6y": syl_6y,
             "syl_1y": syl_1y,
+            "asset_alloc_stock": asset_alloc_stock,
+            "asset_alloc_bond": asset_alloc_bond,
+            "asset_alloc_cash": asset_alloc_cash,
+            "holder_inst": holder_inst,
+            "holder_retail": holder_retail,
+            "peer_percentile": peer_percentile,
+            "peer_rank": peer_rank,
+            "peer_total": peer_total,
         }
     except Exception as e:  # noqa: BLE001 —— 解析环节兜底,绝不向上抛
         print(f"[fund_profile] 解析 {code} 失败: {type(e).__name__} {e}")
@@ -128,13 +188,27 @@ def refresh_profile(conn, codes):
             continue
         conn.execute(
             """INSERT INTO fund_profile(
-                 fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,updated_at)
+                 fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,
+                 asset_alloc_stock,asset_alloc_bond,asset_alloc_cash,
+                 holder_inst,holder_retail,
+                 peer_percentile,peer_rank,peer_total,updated_at)
                VALUES (:fund_code,:name,:manager,:scale,:rate,
-                       :syl_1n,:syl_3y,:syl_6y,:syl_1y,datetime('now','localtime'))
+                       :syl_1n,:syl_3y,:syl_6y,:syl_1y,
+                       :asset_alloc_stock,:asset_alloc_bond,:asset_alloc_cash,
+                       :holder_inst,:holder_retail,
+                       :peer_percentile,:peer_rank,:peer_total,datetime('now','localtime'))
                ON CONFLICT(fund_code) DO UPDATE SET
                  name=excluded.name, manager=excluded.manager, scale=excluded.scale,
                  rate=excluded.rate, syl_1n=excluded.syl_1n, syl_3y=excluded.syl_3y,
                  syl_6y=excluded.syl_6y, syl_1y=excluded.syl_1y,
+                 asset_alloc_stock=excluded.asset_alloc_stock,
+                 asset_alloc_bond=excluded.asset_alloc_bond,
+                 asset_alloc_cash=excluded.asset_alloc_cash,
+                 holder_inst=excluded.holder_inst,
+                 holder_retail=excluded.holder_retail,
+                 peer_percentile=excluded.peer_percentile,
+                 peer_rank=excluded.peer_rank,
+                 peer_total=excluded.peer_total,
                  updated_at=excluded.updated_at""",
             d,
         )

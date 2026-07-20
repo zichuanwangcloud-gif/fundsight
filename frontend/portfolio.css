@@ -2,3 +2,9 @@
 .card .detail-link { margin-top: 8px; font-size: 12px; }
 .card .detail-link a { color: #3b7cff; text-decoration: none; }
 .card .detail-link a:hover { text-decoration: underline; }
+
+/* 资产配置饼图(PRD-03) */
+.alloc-row { display: flex; align-items: center; gap: 16px; padding: 8px 12px; flex-wrap: wrap; }
+.alloc-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: #586076; }
+.leg-item { display: inline-flex; align-items: center; gap: 4px; }
+.leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }

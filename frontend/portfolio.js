@@ -12,6 +12,7 @@ function renderPortfolio(view) {
       <div id="results"></div>
     </div>
     <div id="summary" class="summary"></div>
+    <div id="pf-allocation" class="summary"></div>
     <div id="list"></div>
     <dialog id="dlg">
       <h3 id="dlg-title">添加自选</h3>
@@ -142,6 +143,7 @@ async function load() {
   const data = await r.json();
   const items = data.items || [];
   renderSummary(data.summary);
+  loadAllocation();
   if (!items.length) { $("#list").innerHTML = `<div class="empty">还没有自选，搜索基金加入吧 👆</div>`; return; }
   $("#list").innerHTML = items.map(it => {
     const z = it.gszzl;
@@ -211,6 +213,50 @@ async function loadSparklines(items) {
       if (svg) box.innerHTML = svg; else box.style.display = "none";
     } catch { box.style.display = "none"; }
   }));
+}
+
+// 资产配置饼图 + 持仓集中度(PRD-03)。数据来自 GET /api/portfolio/summary。
+const ALLOC_PALETTE = ["#3b7cff","#e0483d","#16a34a","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#64748b","#a3a3a3"];
+
+function allocationPieSvg(allocation) {
+  const items = (allocation || []).filter(a => a.amount > 0);
+  if (!items.length) return "";
+  const r = 64, cx = 70, cy = 70;
+  let angle = -Math.PI / 2;
+  const slices = items.map((a, i) => {
+    const sweep = a.ratio * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+    angle += sweep;
+    const x2 = cx + r * Math.cos(angle), y2 = cy + r * Math.sin(angle);
+    const large = sweep > Math.PI ? 1 : 0;
+    const color = ALLOC_PALETTE[i % ALLOC_PALETTE.length];
+    return `<path d="M${cx},${cy} L${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${large} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${color}" opacity="0.85"><title>${a.cat} ${(a.ratio*100).toFixed(1)}%</title></path>`;
+  }).join("");
+  return `<svg width="140" height="140" viewBox="0 0 140 140">${slices}</svg>`;
+}
+
+function renderAllocation(s) {
+  const box = $("#pf-allocation");
+  if (!box) return;
+  if (!s || !s.holdings_count) { box.style.display = "none"; return; }
+  const legend = (s.allocation || []).filter(a => a.amount > 0).map((a, i) =>
+    `<span class="leg-item"><i style="background:${ALLOC_PALETTE[i % ALLOC_PALETTE.length]}"></i>${a.cat} ${(a.ratio*100).toFixed(0)}%</span>`).join("");
+  const c = s.concentration || {};
+  box.innerHTML = `
+    <div class="s-head"><span class="s-title">资产配置 · ${s.holdings_count} 只</span></div>
+    <div class="alloc-row">${allocationPieSvg(s.allocation)}<div class="alloc-legend">${legend}</div></div>
+    ${c.top1_fund_code ? `<div class="s-note">持仓集中度:TOP1 ${c.top1_fund_code} ${(c.top1_ratio*100).toFixed(0)}%${c.warn ? ' · <b class="loss">集中度偏高(>40%)</b>' : ""} · 前3合计 ${(c.cr3*100).toFixed(0)}%</div>` : ""}`;
+  box.style.display = "block";
+}
+
+async function loadAllocation() {
+  const box = $("#pf-allocation");
+  if (!box) return;
+  try {
+    const r = await fetch("/api/portfolio/summary", { credentials: "same-origin" });
+    if (!r.ok) { box.style.display = "none"; return; }
+    renderAllocation(await r.json());
+  } catch { box.style.display = "none"; }
 }
 
 registerPage("portfolio", renderPortfolio);

@@ -32,6 +32,8 @@ from backend.scheduler import (  # noqa: E402
     start_session_purge,
     start_tick_purge,
     start_alert_dispatcher,
+    start_trailing_stop_check,
+    start_dca_plan_check,
 )
 from backend import auth  # noqa: E402
 from backend.api import ALL_ROUTES  # noqa: E402
@@ -249,7 +251,8 @@ def update_holding(hid, data, user_id):
     conn = get_conn()
     conn.execute(
         "UPDATE holding SET hold_amount=?,cost_amount=?,target_rate=?,"
-        "target_price=?,stop_profit=?,stop_loss=? WHERE id=? AND user_id=?",
+        "target_price=?,stop_profit=?,stop_loss=?,trailing_stop_pct=? "
+        "WHERE id=? AND user_id=?",
         (
             _num(data.get("hold_amount")),
             _num(data.get("cost_amount")),
@@ -257,6 +260,7 @@ def update_holding(hid, data, user_id):
             _num(data.get("target_price")),
             _num(data.get("stop_profit")),
             _num(data.get("stop_loss")),
+            _num(data.get("trailing_stop_pct")),
             hid,
             user_id,
         ),
@@ -561,6 +565,8 @@ def main():
     auth.start_rate_limit_cleanup(interval_hours=24)
     # 连续失败告警巡检:6h 扫一次抓取任务,连续失败超阈值即给持仓 user 推 sync_alert(M10C)。
     start_alert_dispatcher(interval_hours=6)
+    start_trailing_stop_check(interval_hours=1)
+    start_dca_plan_check(interval_hours=24)
     port = int(os.environ.get("PORT", 8000))
     print(f"盈见 FundSight 已启动 → http://localhost:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

@@ -17,7 +17,10 @@ DEFAULT_DAYS = 180
 
 def _read_profile(conn, code):
     row = conn.execute(
-        "SELECT fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,updated_at "
+        "SELECT fund_code,name,manager,scale,rate,syl_1n,syl_3y,syl_6y,syl_1y,"
+        "asset_alloc_stock,asset_alloc_bond,asset_alloc_cash,"
+        "holder_inst,holder_retail,"
+        "peer_percentile,peer_rank,peer_total,updated_at "
         "FROM fund_profile WHERE fund_code=?", (code,)
     ).fetchone()
     return dict(row) if row else None
@@ -25,13 +28,20 @@ def _read_profile(conn, code):
 
 def _read_series(conn, code, days):
     rows = conn.execute(
-        "SELECT nav_date, nav, equity_return FROM fund_nav_history WHERE fund_code=? "
+        "SELECT nav_date, nav, equity_return, nav_adj, equity_return_adj "
+        "FROM fund_nav_history WHERE fund_code=? "
         "ORDER BY nav_date DESC LIMIT ?",
         (code, days),
     ).fetchall()
     # 取最近 days 天后翻回升序,便于前端从左到右画图(与 M7 nav_history() 一致)
     return [
-        {"date": r["nav_date"], "nav": r["nav"], "equity_return": r["equity_return"]}
+        {
+            "date": r["nav_date"],
+            "nav": r["nav"],
+            "equity_return": r["equity_return"],
+            "nav_adj": r["nav_adj"],
+            "equity_return_adj": r["equity_return_adj"],
+        }
         for r in reversed(rows)
     ]
 
