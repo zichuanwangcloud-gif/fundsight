@@ -1,21 +1,29 @@
-/* 「交易记录」入口 + 弹层样式 —— 复用 app.css 的 dialog / label / input / btns / primary / ghost / empty。 */
-.card .txn { float: right; color: #3b7cff; cursor: pointer; font-size: 13px; margin-left: 14px; }
+/* 「交易记录」入口 + 弹层 —— 复用 theme/app 的 dialog / label / input / btns / primary / ghost。 */
+.card .txn { float: right; color: var(--brand); cursor: pointer; font-size: 12px; margin-left: 14px; }
+.card .txn:hover { text-decoration: underline; }
 
 #tx-dlg { width: 380px; max-height: 82vh; overflow-y: auto; }
-#tx-position { background: #f4f8ff; color: #2b3a5c; border-radius: 8px; padding: 10px 12px;
-               font-size: 13px; margin-bottom: 12px; }
-#tx-position b { color: #3b7cff; }
+#tx-position {
+  background: var(--brand-soft); color: var(--brand-ink); border-radius: var(--r-sm); padding: 11px 13px;
+  font-size: 13px; margin-bottom: 12px;
+}
+#tx-position b { color: var(--brand); font-variant-numeric: tabular-nums; }
 
 #tx-list { max-height: 220px; overflow-y: auto; margin-bottom: 14px; }
-#tx-list .tx-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #55607a;
-                    padding: 8px 0; border-bottom: 1px solid #f0f2f6; }
+#tx-list .tx-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2);
+  padding: 9px 0; border-bottom: 1px solid var(--line-2); font-variant-numeric: tabular-nums;
+}
 #tx-list .tx-row span:nth-child(3) { flex: 1; }
-#tx-list .tx-tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; }
-#tx-list .tx-tag.buy { background: #fde3e1; color: #b8342a; }
-#tx-list .tx-tag.sell { background: #e6f7ec; color: #16794a; }
-#tx-list .tx-del { color: #c0c6d0; cursor: pointer; }
+#tx-list .tx-tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 5px; }
+#tx-list .tx-tag.buy { background: var(--up-bg); color: #b8342a; }
+#tx-list .tx-tag.sell { background: var(--down-bg); color: #16794a; }
+#tx-list .tx-del { color: var(--faint); cursor: pointer; }
+#tx-list .tx-del:hover { color: var(--up); }
 #tx-list .empty { padding: 16px 0; font-size: 12px; }
 
-.tx-form label { display: block; font-size: 13px; color: #55607a; margin: 10px 0 4px; }
-.tx-form select, .tx-form input { width: 100%; padding: 8px 10px; border: 1px solid #d6dbe4;
-                                    border-radius: 8px; font-size: 14px; }
+.tx-form label { display: block; font-size: 13px; color: var(--muted); margin: 11px 0 5px; }
+.tx-form select, .tx-form input {
+  width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 14px;
+}
+.tx-form select:focus, .tx-form input:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }

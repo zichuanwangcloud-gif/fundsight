@@ -2,8 +2,10 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#f4f6fa">
 <title>盈见 FundSight</title>
+<link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/market.css">
 <link rel="stylesheet" href="/detail.css">
@@ -30,30 +32,37 @@
     </div>
   </div>
 
-  <div class="userbar" id="userbar" style="display:none">
-    <span>当前用户 <b id="me-name"></b></span>
-    <span id="notif-badge" class="notif-badge" style="display:none" onclick="showNotifs()">🔔<b id="notif-cnt">0</b></span>
-    <div id="notif-pop" class="notif-pop" style="display:none"></div>
-    <button onclick="logout()">退出</button>
+  <!-- 吸顶品牌栏:左品牌 / 右用户 -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="logo">盈见</span>
+        <span class="en">FundSight</span>
+        <span class="slogan">现状 vs 你的预期</span>
+      </div>
+      <div class="userbar" id="userbar" style="display:none">
+        <span class="me">Hi <b id="me-name"></b></span>
+        <span id="notif-badge" class="notif-badge" style="display:none" onclick="showNotifs()">🔔<b id="notif-cnt">0</b></span>
+        <div id="notif-pop" class="notif-pop" style="display:none"></div>
+        <button class="ghost" onclick="logout()">退出</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <nav class="tabs">
+      <div class="tab" data-key="market" onclick="location.hash='#/market'">市场</div>
+      <div class="tab" data-key="portfolio" onclick="location.hash='#/portfolio'">持仓</div>
+      <div class="tab" data-key="admin" onclick="location.hash='#/admin'">系统</div>
+    </nav>
+
+    <div id="view"></div>
   </div>
 
-  <h1>盈见 <span class="en">FundSight</span></h1>
-  <div class="sub">预见收益 · 逛基金市场 → 看详情 → 加自选 → 管持仓</div>
-
-  <nav class="tabs">
-    <div class="tab" data-key="market" onclick="location.hash='#/market'">基金市场</div>
-    <div class="tab" data-key="portfolio" onclick="location.hash='#/portfolio'">我的持仓</div>
-    <div class="tab" data-key="admin" onclick="location.hash='#/admin'">系统状态</div>
-  </nav>
-
-  <div id="view"></div>
-
-  <!-- 通用工具 + 路由(先加载),各页脚本随后注册,auth 最后启动 -->
+  <!-- 通用工具 + 路由(先加载),图表模块,各页脚本随后注册,auth 最后启动 -->
   <script src="/app.js"></script>
+  <script src="/chart.js"></script>
   <script src="/portfolio.js"></script>
-  <!-- 并行线路脚本挂载锚点(各线路只追加自己一行) -->
-  <!-- 线路 A 市场:   <script src="/market.js"></script> -->
-  <!-- 线路 B 详情:   <script src="/detail.js"></script> -->
   <script src="/market.js"></script>
   <script src="/detail.js"></script>
   <script src="/transactions.js"></script>
