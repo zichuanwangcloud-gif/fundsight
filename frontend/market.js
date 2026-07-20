@@ -9,6 +9,7 @@ let _mktHeldCodes = null; // 已加自选的 fund_code 集合;拉不到就保持
 function renderMarket(view) {
   _mktState = { cat: "", q: "", page: 1, size: 20, items: [], total: 0 };
   view.innerHTML = `
+    <div id="index-bar" class="index-bar"></div>
     <div class="mkt-search">
       <input id="mkt-q" placeholder="搜索基金:代码 / 名称 / 拼音" autocomplete="off">
     </div>
@@ -16,6 +17,8 @@ function renderMarket(view) {
     <div id="mkt-list" class="mkt-list"></div>
     <div id="mkt-more" class="mkt-more"></div>
   `;
+
+  if (typeof startIndexBar === "function") startIndexBar("index-bar");
 
   const q = $("#mkt-q");
   q.addEventListener("input", () => {

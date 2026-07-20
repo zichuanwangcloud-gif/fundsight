@@ -1,0 +1,25 @@
+/* 大盘指数条(P1a)—— 横向 4 格,红涨绿跌。消费 theme.css token。 */
+.index-bar { margin-bottom: 14px; }
+.idx-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+}
+.idx-cell {
+  background: var(--card); border-radius: var(--r-card); padding: 10px 12px;
+  box-shadow: var(--sh-card); min-width: 0;
+}
+.idx-name {
+  font-size: 12px; color: var(--muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.idx-price { font-size: 18px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.idx-chg { font-size: 11px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* 窄屏:横向可滑动,避免 4 格挤成一团 */
+@media (max-width: 560px) {
+  .idx-strip {
+    grid-template-columns: none; display: flex; overflow-x: auto;
+    gap: 8px; padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+  }
+  .idx-cell { flex: 0 0 40%; }
+  .idx-price { font-size: 16px; }
+}

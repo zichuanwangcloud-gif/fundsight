@@ -7,6 +7,7 @@ let editingId = null;   // null=新增，非空=编辑该持仓 id
 
 function renderPortfolio(view) {
   view.innerHTML = `
+    <div id="index-bar" class="index-bar"></div>
     <div class="search-box">
       <input id="q" placeholder="搜索基金：代码 / 名称 / 拼音（如 020608、机器人、jqr）" autocomplete="off">
       <div id="results"></div>
@@ -34,6 +35,8 @@ function renderPortfolio(view) {
         <button class="primary" onclick="submitHolding()">加入自选</button>
       </div>
     </dialog>`;
+
+  if (typeof startIndexBar === "function") startIndexBar("index-bar");
 
   const q = $("#q"), results = $("#results");
   q.addEventListener("input", () => {

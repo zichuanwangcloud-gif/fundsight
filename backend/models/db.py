@@ -196,6 +196,17 @@ CREATE TABLE IF NOT EXISTS dca_plan (
     created_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dca_plan_user ON dca_plan(user_id, active);
+
+-- 大盘指数快照:上证/深证/创业板/沪深300 等,抓取层低频写入,业务层只读(P1a)。
+-- 供首页/市场/持仓页顶部「大盘指数条」一眼看行情。盘中 60s 刷新、收盘定格最新收盘价。
+CREATE TABLE IF NOT EXISTS market_index (
+    code        TEXT PRIMARY KEY,   -- 指数代码(如 000001 上证指数)
+    name        TEXT,
+    price       REAL,               -- 最新点位
+    change      REAL,               -- 涨跌额
+    change_pct  REAL,               -- 涨跌幅 %
+    updated_at  TEXT
+);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
