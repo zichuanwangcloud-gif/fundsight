@@ -30,6 +30,7 @@ from backend.scheduler import (  # noqa: E402
     start_profile_refresh,
     start_nav_gap_check,
     start_session_purge,
+    start_tick_purge,
     start_alert_dispatcher,
     start_trailing_stop_check,
     start_dca_plan_check,
@@ -558,6 +559,8 @@ def main():
     start_nav_gap_check(interval_hours=24)
     # 过期 session 清理:日更删除 expires_at 过期的 token 行,防 session 表膨胀(M9-E)。
     start_session_purge(interval_hours=24)
+    # 盘中估值时序清理:日更删除 7 天前 fund_quote_tick 旧数据,防时序表膨胀。
+    start_tick_purge(interval_hours=24)
     # M10B 限流状态清理:日更删除已结束窗口的 rate_limit_state 行,防表膨胀。
     auth.start_rate_limit_cleanup(interval_hours=24)
     # 连续失败告警巡检:6h 扫一次抓取任务,连续失败超阈值即给持仓 user 推 sync_alert(M10C)。

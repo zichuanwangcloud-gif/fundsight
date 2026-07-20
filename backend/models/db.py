@@ -167,6 +167,22 @@ CREATE TABLE IF NOT EXISTS rate_limit_state (
     PRIMARY KEY (user_id, endpoint, window_start)
 );
 
+-- 盘中估值时序:每基金每采样时刻一行,按 quote_date 自然分区。
+-- fund_quote 只存最新快照(画不出折线),本表追加今日逐点采样供详情页画
+-- 「今日实时涨幅」折线。今日数据保留到次日被新 quote_date 覆盖;7 天前
+-- 旧数据由 scheduler.start_tick_purge 清理防膨胀。
+CREATE TABLE IF NOT EXISTS fund_quote_tick (
+    fund_code   TEXT NOT NULL,
+    quote_date  TEXT NOT NULL,   -- YYYY-MM-DD(交易日,本地采样日期)
+    quote_time  TEXT NOT NULL,   -- HH:MM:SS 本地采样时刻
+    gsz         REAL,             -- 盘中估算净值
+    gszzl       REAL,             -- 盘中估算涨跌幅 %(折线纵轴)
+    dwjz        REAL,             -- 昨日单位净值
+    gztime      TEXT,             -- 数据源原始估值时间
+    PRIMARY KEY (fund_code, quote_date, quote_time)
+);
+CREATE INDEX IF NOT EXISTS idx_quote_tick_date ON fund_quote_tick(quote_date);
+
 -- 定投计划:用户设定每月/周定投,到点站内提醒(PRD-04 P1)
 CREATE TABLE IF NOT EXISTS dca_plan (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

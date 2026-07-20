@@ -5,6 +5,7 @@
 """
 import sqlite3
 import unittest
+from datetime import datetime, time
 from unittest.mock import patch, MagicMock
 
 from backend.datasource import fundgz
@@ -115,6 +116,16 @@ class TestRefreshQuotes(unittest.TestCase):
                 nav_date    TEXT,
                 updated_at  TEXT
             );
+            CREATE TABLE fund_quote_tick (
+                fund_code   TEXT NOT NULL,
+                quote_date  TEXT NOT NULL,
+                quote_time  TEXT NOT NULL,
+                gsz         REAL,
+                gszzl       REAL,
+                dwjz        REAL,
+                gztime      TEXT,
+                PRIMARY KEY (fund_code, quote_date, quote_time)
+            );
             """
         )
 
@@ -142,6 +153,43 @@ class TestRefreshQuotes(unittest.TestCase):
         self.assertEqual(row["dwjz"], 1.2345)
 
     @patch("backend.datasource.fundgz.fetch_estimate")
+    def test_refresh_quotes_writes_tick_timeseries(self, mock_fetch):
+        # refresh_quotes 除写 fund_quote 快照外,应追加 fund_quote_tick 时序点
+        mock_fetch.return_value = {
+            "fund_code": "020608",
+            "name": "南方中证机器人ETF发起联接C",
+            "dwjz": 1.2345,
+            "gsz": 1.25,
+            "gszzl": 1.26,
+            "gztime": "2026-07-03 15:00",
+        }
+
+        ok = fundgz.refresh_quotes(self.conn, ["020608"])
+
+        self.assertEqual(ok, 1)
+        tick = self.conn.execute(
+            "SELECT * FROM fund_quote_tick WHERE fund_code=?", ("020608",)
+        ).fetchone()
+        self.assertIsNotNone(tick)
+        self.assertEqual(tick["gszzl"], 1.26)
+        self.assertTrue(tick["quote_date"])  # YYYY-MM-DD
+        self.assertTrue(tick["quote_time"])  # HH:MM:SS
+
+    @patch("backend.datasource.fundgz.fetch_estimate")
+    def test_refresh_quotes_tick_dedup_same_second(self, mock_fetch):
+        # 同一秒内重复采样应 INSERT OR IGNORE 去重,不产生重复行
+        mock_fetch.return_value = {
+            "fund_code": "020608", "name": "X", "dwjz": 1.0,
+            "gsz": 1.01, "gszzl": 1.0, "gztime": "t",
+        }
+        fundgz.refresh_quotes(self.conn, ["020608"])
+        fundgz.refresh_quotes(self.conn, ["020608"])
+        n = self.conn.execute(
+            "SELECT COUNT(*) FROM fund_quote_tick WHERE fund_code=?", ("020608",)
+        ).fetchone()[0]
+        self.assertEqual(n, 1)
+
+    @patch("backend.datasource.fundgz.fetch_estimate")
     def test_refresh_quotes_skips_failed_fetches(self, mock_fetch):
         mock_fetch.return_value = None
 
@@ -152,6 +200,39 @@ class TestRefreshQuotes(unittest.TestCase):
             "SELECT * FROM fund_quote WHERE fund_code=?", ("999999",)
         ).fetchone()
         self.assertIsNone(row)
+
+
+class TestIsMarketOpen(unittest.TestCase):
+    """交易时段判断:A 股工作日 09:30–15:00,其余均闭市。"""
+
+    def test_weekday_morning_before_open(self):
+        # 周一 09:00 未开盘
+        dt = datetime(2026, 7, 13, 9, 0)  # 2026-07-13 是周一
+        self.assertFalse(fundgz.is_market_open(dt))
+
+    def test_weekday_trading_hours(self):
+        dt = datetime(2026, 7, 13, 10, 30)
+        self.assertTrue(fundgz.is_market_open(dt))
+
+    def test_weekday_after_close(self):
+        dt = datetime(2026, 7, 13, 15, 1)
+        self.assertFalse(fundgz.is_market_open(dt))
+
+    def test_saturday_closed(self):
+        dt = datetime(2026, 7, 18, 10, 30)  # 周六
+        self.assertFalse(fundgz.is_market_open(dt))
+
+    def test_sunday_closed(self):
+        dt = datetime(2026, 7, 19, 14, 0)  # 周日
+        self.assertFalse(fundgz.is_market_open(dt))
+
+    def test_open_at_0930_boundary(self):
+        dt = datetime(2026, 7, 13, 9, 30)
+        self.assertTrue(fundgz.is_market_open(dt))
+
+    def test_close_at_1500_boundary(self):
+        dt = datetime(2026, 7, 13, 15, 0)
+        self.assertTrue(fundgz.is_market_open(dt))
 
 
 if __name__ == "__main__":

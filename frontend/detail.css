@@ -36,3 +36,10 @@
 .d-attr-empty { text-align: center; color: #a0a8b8; padding: 18px 0; font-size: 12px; }
 .d-attr-foot { text-align: right; font-size: 11px; color: #a0a8b8; margin-top: 2px; }
 @media (max-width: 640px) { .d-attr-grid { grid-template-columns: 1fr; } }
+
+/* 今日实时涨幅折线卡 —— 复用 .d-chart-card 容器,加盘中/已收盘小标签 */
+.d-intraday-tag { display: inline-block; font-size: 11px; font-weight: 600;
+                  padding: 2px 8px; border-radius: 6px; margin-left: 8px;
+                  vertical-align: middle; }
+.d-intraday-tag.live { color: #e0483d; background: #fdecea; }
+.d-intraday-tag.closed { color: #8a94a6; background: #f4f6f9; }
