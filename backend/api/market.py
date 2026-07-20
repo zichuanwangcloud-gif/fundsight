@@ -73,6 +73,26 @@ def categories_handler(ctx):
     return [{"cat": c, "count": counts.get(c, 0)} for c in DISPLAY_ORDER]
 
 
+def indices_handler(ctx):
+    """GET /api/market/indices —— 大盘指数条(上证/深证/创业板/沪深300)。
+
+    只读 market_index 缓存,绝不触发抓取(抓取由 scheduler 后台低频写入)。
+    按 DISPLAY_CODES 展示顺序返回;缓存为空时返回空列表(前端优雅降级不渲染)。
+    """
+    from backend.datasource.market_index import DISPLAY_CODES
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT code,name,price,change,change_pct,updated_at FROM market_index"
+    ).fetchall()
+    conn.close()
+    by_code = {r["code"]: dict(r) for r in rows}
+    ordered = [by_code[c] for c in DISPLAY_CODES if c in by_code]
+    # 兜底:出现未在展示序里的指数(理论不会),附在后面不丢
+    ordered += [dict(r) for r in rows if r["code"] not in DISPLAY_CODES]
+    updated = max((r["updated_at"] for r in rows if r["updated_at"]), default=None)
+    return {"indices": ordered, "updated_at": updated}
+
+
 def market_handler(ctx):
     """GET /api/market?cat=&q=&page=&size= —— 分页列表。只读缓存,绝不抓取。"""
     cat = ctx.q("cat", "").strip()
@@ -114,4 +134,5 @@ def market_handler(ctx):
 ROUTES = [
     ("GET", "/api/categories", categories_handler),
     ("GET", "/api/market", market_handler),
+    ("GET", "/api/market/indices", indices_handler),
 ]

@@ -332,6 +332,52 @@ def trigger_quote_for(code, one_fn=None):
     return t
 
 
+# ---- 大盘指数:后台定时刷新，业务层只读缓存（P1a） ----
+
+def _refresh_indices():
+    """刷新 4 大指数最新行情。返回成功写入条数。"""
+    from backend.datasource.market_index import refresh_indices
+    conn = get_conn()
+    try:
+        return refresh_indices(conn)
+    finally:
+        conn.close()
+
+
+def _safe_index_refresh(index_fn, retries=DEFAULT_RETRIES):
+    n, status, error = _record_run("index_refresh", index_fn)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 大盘指数刷新完成,更新 {n} 个指数。")
+    else:
+        print(f"[scheduler] 大盘指数刷新失败(不影响服务): {error}")
+        _maybe_retry("index_refresh", index_fn, retries)
+
+
+def start_index_refresh(interval_seconds=60, index_fn=None, run_now=True):
+    """启动大盘指数定时刷新 daemon 线程,返回该线程。
+
+    与 start_quote_refresh 同构,但 run_now 时**无条件先拉一次**——指数在收盘后
+    接口返回的是最新收盘价(有展示价值),故启动即拉以填充「大盘指数条」;之后
+    仅在交易时段每 interval_seconds 刷新,非交易时段跳过抓取(守合规、省请求)。
+    """
+    from backend.datasource import fundgz
+    index_fn = index_fn or _refresh_indices
+
+    def _loop():
+        if run_now:
+            _safe_index_refresh(index_fn)
+        while True:
+            time.sleep(interval_seconds)
+            if not fundgz.is_market_open():
+                continue
+            _safe_index_refresh(index_fn)
+
+    t = threading.Thread(target=_loop, name="index-refresh", daemon=True)
+    t.start()
+    return t
+
+
 # ---- 历史净值序列:后台日更，走势图用（M7） ----
 
 def _refresh_holdings_history():

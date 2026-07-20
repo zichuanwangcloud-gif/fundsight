@@ -1,6 +1,9 @@
 # data
 data/*.db
 data/*.sqlite
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 
 # python
 __pycache__/
