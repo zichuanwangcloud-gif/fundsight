@@ -1,0 +1,83 @@
+/* 截图识别持仓 —— 上传入口按钮 + 识别 overlay/确认表格。沿用 app.css 的设计 token。 */
+
+/* 上传入口按钮(持仓页搜索框下方) */
+.ocr-entry {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: -6px 0 16px;
+}
+.ocr-entry button {
+  background: var(--card); color: var(--brand); border: 1px solid var(--brand);
+  border-radius: var(--r-btn); padding: 9px 15px; font-size: 14px; cursor: pointer;
+  transition: background .15s;
+}
+.ocr-entry button:hover { background: var(--brand-soft); }
+.ocr-entry .ocr-privacy { color: var(--faint); font-size: 12px; }
+
+/* 全屏 overlay */
+#ocr-overlay {
+  display: none; position: fixed; inset: 0; z-index: 90;
+  background: rgba(20,30,55,.34); backdrop-filter: blur(2px);
+  align-items: center; justify-content: center; padding: 20px;
+}
+.ocr-modal {
+  background: var(--card); color: var(--ink); border-radius: var(--r-lg);
+  box-shadow: var(--sh-pop); padding: 22px 24px; width: min(720px, 96vw);
+  max-height: 88vh; overflow: auto;
+}
+.ocr-modal h3 { margin: 0 0 10px; font-size: 17px; }
+.ocr-note { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0; }
+.ocr-env {
+  background: var(--bg, #f4f6fb); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 12px; font-size: 12px; line-height: 1.7; overflow-x: auto; white-space: pre;
+  color: var(--ink);
+}
+.ocr-spin { color: var(--brand); font-size: 14px; margin: 14px 0; }
+
+/* 确认表格(用 grid 行,移动端也可读) */
+.ocr-table { margin: 14px 0; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.ocr-row {
+  display: grid; grid-template-columns: 2fr 1.6fr 1.1fr 1.1fr; gap: 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line-2); align-items: center;
+}
+.ocr-row:last-child { border-bottom: none; }
+.ocr-head { background: var(--brand-soft); font-size: 12px; color: var(--muted); font-weight: 600; }
+.ocr-row.ocr-unmatched { background: rgba(229,67,47,.06); }
+.ocr-cell { min-width: 0; }
+.ocr-name label { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; cursor: pointer; }
+.ocr-name .ocr-rate { display: block; color: var(--faint); font-size: 11px; margin-top: 3px; }
+.ocr-cell input, .ocr-cell select {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  font-size: 13px; background: var(--card); color: var(--ink); margin-top: 4px;
+}
+.ocr-cell input:focus, .ocr-cell select:focus {
+  border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.ocr-warn { display: block; color: var(--up); font-size: 11px; margin-top: 4px; }
+
+/* 固定模板通道：名称裁图 + 行内搜索选码 */
+.ocr-nameimg {
+  display: block; max-width: 100%; max-height: 34px; border: 1px solid var(--line);
+  border-radius: 4px; background: #fff; margin-bottom: 3px;
+}
+.ocr-cell { position: relative; }
+.ocr-sug {
+  display: none; position: absolute; z-index: 2; left: 0; right: 0; top: 100%;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm);
+  box-shadow: var(--sh-pop); max-height: 180px; overflow: auto;
+}
+.ocr-sug div { padding: 7px 9px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--line-2); }
+.ocr-sug div:hover { background: var(--brand-soft); }
+.ocr-sug div span { color: var(--muted); margin-left: 6px; }
+.ocr-sug .ocr-none { color: var(--faint); cursor: default; }
+
+.ocr-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.ocr-btns button {
+  border: none; border-radius: var(--r-btn); padding: 9px 18px; font-size: 14px; cursor: pointer;
+}
+.ocr-btns .ghost { background: var(--line-2); color: var(--ink); }
+.ocr-btns .primary { background: var(--brand); color: #fff; }
+
+@media (max-width: 560px) {
+  .ocr-row { grid-template-columns: 1fr 1fr; }
+  .ocr-head { display: none; }
+}

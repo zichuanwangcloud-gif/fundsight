@@ -10,5 +10,15 @@
 #                     接入调用，属于规划中的可选能力，需要时再手动
 #                     `pip install akshare` 并按需接入 backend/datasource/。
 #
+#   rapidocr_onnxruntime —— 截图识别持仓的「本地 OCR 通道」
+#                     (FUNDSIGHT_VISION_PROVIDER=local)。纯 pip、无需系统二进制、
+#                     中文较准、截图不出本机。未安装时该通道优雅降级为手动录入；
+#                     也可改用云端大模型通道(设 ANTHROPIC_API_KEY)，二者任选其一。
+#
+# 说明：截图识别还有第三条「固定模板纯代码通道」(FUNDSIGHT_VISION_PROVIDER=template)，
+#      它**零第三方依赖**(自带极简 PNG 解码，标准库 zlib)，无需安装任何包；仅支持
+#      固定版式的 PNG 截图，需先用 scripts/ocr_calibrate.py 校准。详见 README。
+#
 # 如需安装可选依赖，取消下一行注释：
 # akshare
+# rapidocr_onnxruntime

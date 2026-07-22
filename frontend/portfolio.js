@@ -12,6 +12,10 @@ function renderPortfolio(view) {
       <input id="q" placeholder="搜索基金：代码 / 名称 / 拼音（如 020608、机器人、jqr）" autocomplete="off">
       <div id="results"></div>
     </div>
+    <div class="ocr-entry">
+      <button onclick="openOcrImport()">📷 上传截图识别持仓</button>
+      <span class="ocr-privacy">支付宝/天天基金等持仓截图，自动识别基金与金额，核对后一键导入</span>
+    </div>
     <div id="summary" class="summary"></div>
     <div id="pf-allocation" class="summary"></div>
     <div id="list"></div>
