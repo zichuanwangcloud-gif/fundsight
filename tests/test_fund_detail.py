@@ -320,11 +320,13 @@ class TestGetFundDetail(unittest.TestCase):
         self.assertEqual(result, (400, {"error": "缺少基金代码"}))
 
     def test_registered_in_routes(self):
-        self.assertEqual(len(fund_detail.ROUTES), 1)
-        method, pattern, handler = fund_detail.ROUTES[0]
-        self.assertEqual(method, "GET")
-        self.assertEqual(pattern, "/api/fund/{code}")
-        self.assertIs(handler, fund_detail.get_fund_detail)
+        # P2 起新增 /holdings 端点,详情模块现导出 2 条路由
+        self.assertEqual(len(fund_detail.ROUTES), 2)
+        by_pattern = {pattern: (method, handler) for method, pattern, handler in fund_detail.ROUTES}
+        self.assertIn("/api/fund/{code}", by_pattern)
+        self.assertEqual(by_pattern["/api/fund/{code}"], ("GET", fund_detail.get_fund_detail))
+        self.assertIn("/api/fund/{code}/holdings", by_pattern)
+        self.assertEqual(by_pattern["/api/fund/{code}/holdings"], ("GET", fund_detail.get_fund_holdings))
 
 
 if __name__ == "__main__":

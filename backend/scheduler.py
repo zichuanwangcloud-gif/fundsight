@@ -544,6 +544,52 @@ def start_profile_refresh(interval_hours=24, profile_fn=None, run_now=False):
     return t
 
 
+# ---- 基金重仓股:后台日更 + 首访兜底，详情页 F10 用（P2） ----
+
+def _refresh_tracked_holdings():
+    """对持仓 ∪ 被查基金批量刷新 Top10 重仓股。返回有数据的基金数。"""
+    from backend.datasource.fund_holdings import refresh_holdings
+    conn = get_conn()
+    try:
+        codes = _profile_target_codes(conn)
+        if not codes:
+            return 0
+        return refresh_holdings(conn, codes)
+    finally:
+        conn.close()
+
+
+def _safe_holdings_refresh(holdings_fn, retries=DEFAULT_RETRIES):
+    n, status, error = _record_run("holdings_refresh", holdings_fn)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 重仓股刷新完成,更新 {n} 只基金。")
+    else:
+        print(f"[scheduler] 重仓股刷新失败(不影响服务): {error}")
+        _maybe_retry("holdings_refresh", holdings_fn, retries)
+
+
+def start_holdings_refresh(interval_hours=24, holdings_fn=None, run_now=False):
+    """启动重仓股定时刷新 daemon 线程(日更),返回该线程。
+
+    与 start_profile_refresh 同构:run_now 默认 False —— 持仓明细按季度披露、变化慢,
+    启动即拉非必要;详情页首次访问由 fund_detail._ensure_cached 兜底抓一次。
+    """
+    holdings_fn = holdings_fn or _refresh_tracked_holdings
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_holdings_refresh(holdings_fn)
+        while True:
+            time.sleep(interval)
+            _safe_holdings_refresh(holdings_fn)
+
+    t = threading.Thread(target=_loop, name="holdings-refresh", daemon=True)
+    t.start()
+    return t
+
+
 # ---- 净值断点检测:持仓基金净值连续缺失即告警(M9-C) ----
 
 NAV_GAP_THRESHOLD_DAYS = 5  # 自然日,覆盖周末;max(nav_date) 距今超过即视为断点

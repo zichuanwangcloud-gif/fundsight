@@ -47,12 +47,14 @@ def _read_series(conn, code, days):
 
 
 def _ensure_cached(conn, code):
-    """缓存完全缺失时,触发一次低频按需抓取并写入(profile + 历史序列),单次不重试。"""
+    """缓存完全缺失时,触发一次低频按需抓取并写入(profile + 历史序列 + 重仓股),单次不重试。"""
     from backend.datasource.fund_profile import refresh_profile
     from backend.datasource.nav_history import refresh_nav_history
+    from backend.datasource.fund_holdings import refresh_holdings
 
     refresh_profile(conn, [code])
     refresh_nav_history(conn, [code])
+    refresh_holdings(conn, [code])
 
 
 def _ensure_intraday_seed(conn, code):
@@ -101,4 +103,36 @@ def get_fund_detail(ctx):
         conn.close()
 
 
-ROUTES = [("GET", "/api/fund/{code}", get_fund_detail)]
+def _read_holdings(conn, code):
+    rows = conn.execute(
+        "SELECT rank,stock_code,stock_name,weight,report_period,updated_at "
+        "FROM fund_holding_stock WHERE fund_code=? ORDER BY rank",
+        (code,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_fund_holdings(ctx):
+    """GET /api/fund/{code}/holdings —— Top10 重仓股(F10)。只读缓存,首访由详情主接口兜底抓取。"""
+    code = (ctx.params.get("code") or "").strip()
+    if not code:
+        return (400, {"error": "缺少基金代码"})
+    conn = get_conn()
+    try:
+        holdings = _read_holdings(conn, code)
+        # 首访兜底:详情主接口 _ensure_cached 已抓,但若用户直接命中本端点且无缓存,补抓一次
+        if not holdings:
+            profile = _read_profile(conn, code)
+            if profile is None:
+                _ensure_cached(conn, code)
+                holdings = _read_holdings(conn, code)
+        period = holdings[0]["report_period"] if holdings else None
+        return {"code": code, "period": period, "holdings": holdings}
+    finally:
+        conn.close()
+
+
+ROUTES = [
+    ("GET", "/api/fund/{code}", get_fund_detail),
+    ("GET", "/api/fund/{code}/holdings", get_fund_holdings),
+]

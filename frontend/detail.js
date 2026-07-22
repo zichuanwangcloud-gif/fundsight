@@ -28,6 +28,8 @@ function renderDetail(view, code) {
       <button class="primary" id="d-add-btn" onclick="addToHoldings()">＋ 加自选</button>
     </div>
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
+    <div id="d-fundamentals" class="d-profile" hidden></div>
+    <div id="d-holdings" class="d-profile" hidden></div>
     <div id="d-intraday" class="d-chart-card"><div class="d-loading">实时涨幅加载中…</div></div>
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div id="d-risk" class="d-profile"><div class="d-loading">风险指标加载中…</div></div>
@@ -59,6 +61,8 @@ async function loadDetail(chartOnly) {
     );
     if (!chartOnly) {
       renderProfile(d.profile);
+      renderFundamentals(d.profile);
+      loadHoldings();
       getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/returns")
         .then(ret => renderReturns(ret.periods))
         .catch(() => { const b = $("#d-returns"); if (b) b.innerHTML = ""; });
@@ -82,11 +86,95 @@ function renderProfile(p) {
     <div class="d-grid">
       <div>基金经理<b>${p.manager || "—"}</b></div>
       <div>规模(亿元)<b>${p.scale != null ? p.scale : "—"}</b></div>
-      <div>管理费率<b>${p.rate != null ? p.rate + "%" : "—"}</b></div>
+      <div>管理费率<b>${p.rate != null && p.rate !== "" ? (String(p.rate).includes("%") ? p.rate : p.rate + "%") : "—"}</b></div>
       <div>近1年收益<b>${fmtPct(p.syl_1n)}</b></div>
       <div>近3月收益<b>${fmtPct(p.syl_3y)}</b></div>
       <div>近6月收益<b>${fmtPct(p.syl_6y)}</b></div>
       <div>近1月收益<b>${fmtPct(p.syl_1y)}</b></div>
+    </div>`;
+}
+
+// 同类排名 + 资产配置 + 持有人结构 —— 数据已在 profile 响应里(PRD-05/06 已抓),此处呈现。
+function renderFundamentals(p) {
+  const box = $("#d-fundamentals");
+  if (!box) return;
+  if (!p) { box.hidden = true; return; }
+  const blocks = [];
+
+  // 同类排名
+  if (p.peer_rank != null && p.peer_total) {
+    const pct = p.peer_percentile != null ? ` · 超越 ${(+p.peer_percentile).toFixed(0)}% 同类` : "";
+    blocks.push(`<div class="d-fund-sec">
+      <div class="d-fund-h">同类排名</div>
+      <div class="d-fund-rank"><b>${p.peer_rank}</b> / ${p.peer_total}<span class="d-fund-note">${pct}</span></div>
+    </div>`);
+  }
+
+  // 资产配置(股/债/现金 占净比,横向条)
+  const alloc = [
+    { k: "股票", v: p.asset_alloc_stock, c: "var(--up)" },
+    { k: "债券", v: p.asset_alloc_bond, c: "var(--brand)" },
+    { k: "现金", v: p.asset_alloc_cash, c: "var(--down)" },
+  ].filter(a => a.v != null);
+  if (alloc.length) {
+    blocks.push(`<div class="d-fund-sec">
+      <div class="d-fund-h">资产配置<span class="d-fund-note">最新一期 占净值比</span></div>
+      ${alloc.map(a => `<div class="d-bar-row">
+        <span class="d-bar-k">${a.k}</span>
+        <span class="d-bar-track"><i style="width:${Math.max(0, Math.min(100, a.v))}%;background:${a.c}"></i></span>
+        <span class="d-bar-v">${(+a.v).toFixed(1)}%</span>
+      </div>`).join("")}
+    </div>`);
+  }
+
+  // 持有人结构(机构/个人)
+  if (p.holder_inst != null || p.holder_retail != null) {
+    const rows = [
+      { k: "机构持有", v: p.holder_inst, c: "var(--brand)" },
+      { k: "个人持有", v: p.holder_retail, c: "var(--gold)" },
+    ].filter(a => a.v != null);
+    blocks.push(`<div class="d-fund-sec">
+      <div class="d-fund-h">持有人结构<span class="d-fund-note">最新一期</span></div>
+      ${rows.map(a => `<div class="d-bar-row">
+        <span class="d-bar-k">${a.k}</span>
+        <span class="d-bar-track"><i style="width:${Math.max(0, Math.min(100, a.v))}%;background:${a.c}"></i></span>
+        <span class="d-bar-v">${(+a.v).toFixed(1)}%</span>
+      </div>`).join("")}
+    </div>`);
+  }
+
+  if (!blocks.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="d-name">基金档案 <span class="fcode">同类 · 配置 · 持有人</span></div>
+    <div class="d-fund-grid">${blocks.join("")}</div>`;
+}
+
+// 重仓股 Top10 —— GET /api/fund/{code}/holdings。名次/名称/占净比条,点进个股行情。
+async function loadHoldings() {
+  const box = $("#d-holdings");
+  if (!box) return;
+  let data;
+  try {
+    data = await getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/holdings");
+  } catch { box.hidden = true; return; }
+  const items = (data && data.holdings) || [];
+  if (!items.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const maxW = Math.max(...items.map(h => h.weight || 0), 1);
+  box.innerHTML = `<div class="d-name">重仓股 Top${items.length}
+      <span class="fcode">${data.period || ""}</span></div>
+    <div class="d-hold-list">${items.map(h => holdingRow(h, maxW)).join("")}</div>
+    <div class="d-chart-legend">占比为占基金净值比例;点名称看个股行情</div>`;
+}
+
+function holdingRow(h, maxW) {
+  const w = h.weight || 0;
+  const barPct = Math.max(2, (w / maxW) * 100);
+  return `<div class="d-hold-row">
+      <span class="d-hold-no">${h.rank}</span>
+      <a class="d-hold-name" href="//quote.eastmoney.com/unify/r/${(h.stock_code || "").length === 6 && h.stock_code[0] === "6" ? "1" : "0"}.${h.stock_code}" target="_blank" rel="noopener">${h.stock_name || h.stock_code}</a>
+      <span class="d-hold-track"><i style="width:${barPct}%"></i></span>
+      <span class="d-hold-w">${h.weight != null ? (+h.weight).toFixed(2) + "%" : "—"}</span>
     </div>`;
 }
 

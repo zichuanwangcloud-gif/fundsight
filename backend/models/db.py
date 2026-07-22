@@ -227,6 +227,20 @@ CREATE TABLE IF NOT EXISTS fund_rank (
     PRIMARY KEY (period, category, fund_code)
 );
 CREATE INDEX IF NOT EXISTS idx_fund_rank_lookup ON fund_rank(period, category, rank);
+
+-- 基金重仓股 Top10:详情页 F10 深度用,抓取层日更/首访兜底写入,业务层只读(P2)。
+-- 数据源 F10 jjcc(季度持仓明细),每基金先删后插最新一期 Top10。
+CREATE TABLE IF NOT EXISTS fund_holding_stock (
+    fund_code     TEXT NOT NULL,
+    rank          INTEGER NOT NULL,   -- 持仓名次(1 起)
+    stock_code    TEXT NOT NULL,
+    stock_name    TEXT,
+    weight        REAL,               -- 占净值比例 %
+    report_period TEXT,               -- 报告期,如 "2026年2季度"
+    updated_at    TEXT,
+    PRIMARY KEY (fund_code, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_holding_stock_fund ON fund_holding_stock(fund_code, rank);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
