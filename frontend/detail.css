@@ -51,3 +51,28 @@
 .d-intraday-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: var(--r-pill); vertical-align: middle; }
 .d-intraday-tag.live { color: var(--up); background: var(--up-bg); }
 .d-intraday-tag.closed { color: var(--muted); background: var(--card-2); }
+
+/* P2 详情页 F10 深度:基金档案(同类/资产/持有人) + 重仓股 Top10 */
+.d-fund-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 22px; }
+@media (max-width: 560px) { .d-fund-grid { grid-template-columns: 1fr; } }
+.d-fund-h { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.d-fund-h .d-fund-note { color: var(--faint); margin-left: 6px; }
+.d-fund-rank { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.d-fund-rank b { font-size: 20px; font-weight: 800; color: var(--ink); }
+.d-fund-rank .d-fund-note { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.d-bar-row { display: grid; grid-template-columns: 48px 1fr 46px; align-items: center; gap: 8px; margin-bottom: 7px; }
+.d-bar-k { font-size: 12px; color: var(--muted); }
+.d-bar-track { height: 8px; background: var(--line-2); border-radius: 999px; overflow: hidden; }
+.d-bar-track i { display: block; height: 100%; border-radius: 999px; }
+.d-bar-v { font-size: 12px; font-weight: 700; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.d-hold-list { display: flex; flex-direction: column; gap: 8px; }
+.d-hold-row { display: grid; grid-template-columns: 24px 1fr 90px 52px; align-items: center; gap: 10px; }
+.d-hold-no { font-size: 12px; font-weight: 800; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.d-hold-name { font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-hold-name:hover { color: var(--brand); text-decoration: underline; }
+.d-hold-track { height: 8px; background: var(--line-2); border-radius: 999px; overflow: hidden; }
+.d-hold-track i { display: block; height: 100%; background: linear-gradient(90deg,#f0a020,var(--up)); border-radius: 999px; }
+.d-hold-w { font-size: 13px; font-weight: 700; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .d-hold-row { grid-template-columns: 20px 1fr 60px 48px; } }

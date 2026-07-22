@@ -30,6 +30,7 @@ from backend.scheduler import (  # noqa: E402
     start_rank_refresh,
     start_history_refresh, trigger_history_for,
     start_profile_refresh,
+    start_holdings_refresh,
     start_nav_gap_check,
     start_session_purge,
     start_tick_purge,
@@ -560,6 +561,8 @@ def main():
     start_history_refresh(interval_hours=24)
     # 基本面(经理/规模/收益/费率):后台日更持仓/被查基金的 profile,变化慢故 run_now=False。
     start_profile_refresh(interval_hours=24)
+    # 重仓股 Top10(F10):后台日更持仓/被查基金的季度持仓明细,变化慢故 run_now=False(P2)。
+    start_holdings_refresh(interval_hours=24)
     # 净值断点检测:日更检查持仓基金 max(nav_date) 距今是否超阈值(默认 5 天),
     # 有缺失记 task_run fail,前端「系统状态」页据此标红告警(M9-C)。
     start_nav_gap_check(interval_hours=24)
