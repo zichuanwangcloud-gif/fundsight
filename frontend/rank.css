@@ -1,0 +1,38 @@
+/* 基金排行榜页(P1b)—— 类目/区间胶囊 + 榜单列表。消费 theme.css token。 */
+.rank-head { margin-bottom: 14px; }
+.rank-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.rank-periods { margin-top: 8px; }
+.rank-periods .pill { font-size: 12px; padding: 4px 11px; }
+
+.rank-list { display: flex; flex-direction: column; gap: 6px; }
+.rank-row {
+  display: grid; grid-template-columns: 34px 1fr 84px 72px; align-items: center;
+  gap: 8px; background: var(--card); border-radius: var(--r-card); padding: 11px 14px;
+  box-shadow: var(--sh-card); cursor: pointer; transition: box-shadow .15s;
+}
+.rank-row:hover { box-shadow: 0 2px 4px rgba(20,30,55,.06), 0 10px 26px rgba(20,30,55,.08); }
+
+.rank-th {
+  background: transparent; box-shadow: none; cursor: default; padding: 2px 14px;
+  font-size: 11px; color: var(--faint); font-weight: 600;
+}
+.rank-th:hover { box-shadow: none; }
+
+.rk-no { font-size: 14px; font-weight: 800; color: var(--muted); text-align: center;
+  font-variant-numeric: tabular-nums; }
+.rk-no.rk-top { color: var(--up); }
+.rk-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rk-name b { font-size: 14px; font-weight: 700; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rk-name i { font-style: normal; font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums; }
+.rk-ret { text-align: right; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.rk-nav { text-align: right; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rank-th .rk-ret, .rank-th .rk-nav { font-size: 11px; font-weight: 600; }
+
+.rank-empty-sub { font-size: 12px; color: var(--faint); }
+
+@media (max-width: 560px) {
+  .rank-row { grid-template-columns: 28px 1fr 72px; }
+  .rk-nav, .rank-th .rk-nav { display: none; }  /* 窄屏隐藏净值列,保名次/名称/收益 */
+}
