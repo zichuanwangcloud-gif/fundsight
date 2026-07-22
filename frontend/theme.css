@@ -198,3 +198,11 @@ button { font-family: inherit; }
   .tabs .tab { padding: 8px 6px; font-size: 12px; border-radius: var(--r-sm); }
   .tabs .tab.active { box-shadow: none; background: var(--brand-soft); }
 }
+
+/* 多序列折线图(同类对比 P3):图例 + tooltip 行 */
+.mlc-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.mlc-leg { display: inline-flex; align-items: center; gap: 5px; }
+.mlc-leg i { display: inline-block; width: 12px; height: 3px; border-radius: 2px; }
+.chart-tip > div { display: flex; align-items: center; gap: 6px; }
+.chart-tip > div i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.chart-tip b.up { color: #ff8a7a; } .chart-tip b.down { color: #7fe0a3; }

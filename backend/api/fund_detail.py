@@ -47,14 +47,16 @@ def _read_series(conn, code, days):
 
 
 def _ensure_cached(conn, code):
-    """缓存完全缺失时,触发一次低频按需抓取并写入(profile + 历史序列 + 重仓股),单次不重试。"""
+    """缓存完全缺失时,触发一次低频按需抓取并写入(profile + 历史序列 + 重仓股 + 同类对比),单次不重试。"""
     from backend.datasource.fund_profile import refresh_profile
     from backend.datasource.nav_history import refresh_nav_history
     from backend.datasource.fund_holdings import refresh_holdings
+    from backend.datasource.fund_compare import refresh_compare
 
     refresh_profile(conn, [code])
     refresh_nav_history(conn, [code])
     refresh_holdings(conn, [code])
+    refresh_compare(conn, [code])
 
 
 def _ensure_intraday_seed(conn, code):
@@ -132,7 +134,42 @@ def get_fund_holdings(ctx):
         conn.close()
 
 
+def _read_compare(conn, code):
+    rows = conn.execute(
+        "SELECT series_key, trade_date, value FROM fund_compare_trend "
+        "WHERE fund_code=? ORDER BY series_key, trade_date",
+        (code,),
+    ).fetchall()
+    from backend.datasource.fund_compare import SERIES_LABELS
+    grouped = {}
+    for r in rows:
+        grouped.setdefault(r["series_key"], []).append(
+            {"date": r["trade_date"], "value": r["value"]})
+    order = ["self", "peer", "hs300"]
+    return [
+        {"key": k, "name": SERIES_LABELS.get(k, k), "points": grouped[k]}
+        for k in order if k in grouped
+    ]
+
+
+def get_fund_compare(ctx):
+    """GET /api/fund/{code}/compare —— 本基金/同类/沪深300 累计收益率叠加序列。只读缓存。"""
+    code = (ctx.params.get("code") or "").strip()
+    if not code:
+        return (400, {"error": "缺少基金代码"})
+    conn = get_conn()
+    try:
+        series = _read_compare(conn, code)
+        if not series and _read_profile(conn, code) is None:
+            _ensure_cached(conn, code)
+            series = _read_compare(conn, code)
+        return {"code": code, "series": series}
+    finally:
+        conn.close()
+
+
 ROUTES = [
     ("GET", "/api/fund/{code}", get_fund_detail),
     ("GET", "/api/fund/{code}/holdings", get_fund_holdings),
+    ("GET", "/api/fund/{code}/compare", get_fund_compare),
 ]

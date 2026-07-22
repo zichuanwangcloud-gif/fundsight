@@ -590,6 +590,52 @@ def start_holdings_refresh(interval_hours=24, holdings_fn=None, run_now=False):
     return t
 
 
+# ---- 同类对比走势:后台日更 + 首访兜底，详情页叠加图用（P3） ----
+
+def _refresh_tracked_compare():
+    """对持仓 ∪ 被查基金批量刷新同类对比走势。返回有数据的基金数。"""
+    from backend.datasource.fund_compare import refresh_compare
+    conn = get_conn()
+    try:
+        codes = _profile_target_codes(conn)
+        if not codes:
+            return 0
+        return refresh_compare(conn, codes)
+    finally:
+        conn.close()
+
+
+def _safe_compare_refresh(compare_fn, retries=DEFAULT_RETRIES):
+    n, status, error = _record_run("compare_refresh", compare_fn)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 同类对比刷新完成,更新 {n} 只基金。")
+    else:
+        print(f"[scheduler] 同类对比刷新失败(不影响服务): {error}")
+        _maybe_retry("compare_refresh", compare_fn, retries)
+
+
+def start_compare_refresh(interval_hours=24, compare_fn=None, run_now=False):
+    """启动同类对比走势定时刷新 daemon 线程(日更),返回该线程。
+
+    与 start_profile_refresh 同构:run_now 默认 False —— 变化慢,首次访问由
+    fund_detail._ensure_cached 兜底抓一次。
+    """
+    compare_fn = compare_fn or _refresh_tracked_compare
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_compare_refresh(compare_fn)
+        while True:
+            time.sleep(interval)
+            _safe_compare_refresh(compare_fn)
+
+    t = threading.Thread(target=_loop, name="compare-refresh", daemon=True)
+    t.start()
+    return t
+
+
 # ---- 净值断点检测:持仓基金净值连续缺失即告警(M9-C) ----
 
 NAV_GAP_THRESHOLD_DAYS = 5  # 自然日,覆盖周末;max(nav_date) 距今超过即视为断点

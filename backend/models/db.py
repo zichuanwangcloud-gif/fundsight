@@ -241,6 +241,18 @@ CREATE TABLE IF NOT EXISTS fund_holding_stock (
     PRIMARY KEY (fund_code, stock_code)
 );
 CREATE INDEX IF NOT EXISTS idx_holding_stock_fund ON fund_holding_stock(fund_code, rank);
+
+-- 同类对比走势:本基金 / 同类平均 / 沪深300 的累计收益率序列,详情页叠加图用(P3)。
+-- 数据源 pingzhongdata Data_grandTotal,抓取层日更/首访兜底写入,业务层只读。
+CREATE TABLE IF NOT EXISTS fund_compare_trend (
+    fund_code   TEXT NOT NULL,
+    series_key  TEXT NOT NULL,   -- self(本基金) | peer(同类平均) | hs300(沪深300)
+    trade_date  TEXT NOT NULL,   -- YYYY-MM-DD
+    value       REAL,            -- 累计收益率 %
+    updated_at  TEXT,
+    PRIMARY KEY (fund_code, series_key, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_compare_fund ON fund_compare_trend(fund_code, series_key, trade_date);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
