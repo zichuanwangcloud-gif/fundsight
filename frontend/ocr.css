@@ -54,6 +54,22 @@
 }
 .ocr-warn { display: block; color: var(--up); font-size: 11px; margin-top: 4px; }
 
+/* 固定模板通道：名称裁图 + 行内搜索选码 */
+.ocr-nameimg {
+  display: block; max-width: 100%; max-height: 34px; border: 1px solid var(--line);
+  border-radius: 4px; background: #fff; margin-bottom: 3px;
+}
+.ocr-cell { position: relative; }
+.ocr-sug {
+  display: none; position: absolute; z-index: 2; left: 0; right: 0; top: 100%;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm);
+  box-shadow: var(--sh-pop); max-height: 180px; overflow: auto;
+}
+.ocr-sug div { padding: 7px 9px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--line-2); }
+.ocr-sug div:hover { background: var(--brand-soft); }
+.ocr-sug div span { color: var(--muted); margin-left: 6px; }
+.ocr-sug .ocr-none { color: var(--faint); cursor: default; }
+
 .ocr-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .ocr-btns button {
   border: none; border-radius: var(--r-btn); padding: 9px 18px; font-size: 14px; cursor: pointer;

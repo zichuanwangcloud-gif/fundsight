@@ -101,7 +101,7 @@ def recognize(image, user_id):
         cost = r.get("cost")
         if cost is None and r.get("hold_amount") is not None and r.get("profit") is not None:
             cost = round(r["hold_amount"] - r["profit"], 2)
-        rows.append({
+        row = {
             "name": r.get("name"),
             "code": r.get("code"),
             "hold_amount": r.get("hold_amount"),
@@ -110,7 +110,11 @@ def recognize(image, user_id):
             "cost_amount": cost,
             "matched_code": matched,
             "candidates": candidates,
-        })
+        }
+        # 固定模板通道无法读基金名,改附名称裁图(base64),交确认页由用户核对搜索。
+        if r.get("name_image"):
+            row["name_image"] = r["name_image"]
+        rows.append(row)
     return {"configured": True, "rows": rows}
 
 

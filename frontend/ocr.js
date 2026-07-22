@@ -42,6 +42,10 @@ export FUNDSIGHT_VISION_PROVIDER=openai
 export FUNDSIGHT_VISION_API_KEY=...
 export FUNDSIGHT_VISION_ENDPOINT=https://your-host/v1/chat/completions
 export FUNDSIGHT_VISION_MODEL=your-vision-model</pre>
+      <p class="ocr-note"><b>方案 C · 固定模板纯代码（零依赖、零成本，仅限固定版式 PNG）</b></p>
+      <pre class="ocr-env"># 先用样图校准一次，生成 data/ocr_template.json：
+python3 scripts/ocr_calibrate.py 样图.png calib_input.json
+export FUNDSIGHT_VISION_PROVIDER=template</pre>
       <p class="ocr-note">未配置时可继续用上方搜索手动录入持仓，不受影响。</p>
       <div class="ocr-btns"><button class="ghost" onclick="_ocrClose()">知道了</button></div>`);
     return;
@@ -54,8 +58,8 @@ async function _onOcrFileChosen(e) {
   e.target.value = "";  // 允许连续选同一文件
   if (!file) return;
 
-  const notice = _ocrProvider === "local"
-    ? "🖥️ 正在本机识别（截图不出本机、不留存），首次加载模型稍慢，请稍候。"
+  const notice = (_ocrProvider === "local" || _ocrProvider === "template")
+    ? "🖥️ 正在本机识别（截图不出本机、不留存），首次加载稍慢，请稍候。"
     : "📷 截图正发送至已配置的识别服务，仅内存处理、不留存，请稍候。";
   _ocrOverlay(`<h3>识别中…</h3>
     <p class="ocr-note">${notice}</p>
@@ -96,6 +100,33 @@ function _readAsDataURL(file) {
   });
 }
 
+// 确认页某行按名称/代码搜索基金，点选后写入该行的代码框(模板通道无候选时用)。
+let _ocrSearchTimer = null;
+function _ocrRowSearch(inp) {
+  const sug = inp_sibling(inp);
+  clearTimeout(_ocrSearchTimer);
+  const v = inp.value.trim();
+  if (!v) { sug.style.display = "none"; return; }
+  _ocrSearchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch("/api/search?q=" + encodeURIComponent(v), { credentials: "same-origin" });
+      if (r.status === 401) return showAuth();
+      const funds = await r.json();
+      sug.innerHTML = funds.map(f =>
+        `<div onclick="_ocrPickCode(this,'${f.fund_code}')">${_esc(f.name)}<span>${f.fund_code}</span></div>`).join("")
+        || `<div class="ocr-none">无匹配</div>`;
+      sug.style.display = "block";
+    } catch (e) { /* 静默 */ }
+  }, 200);
+}
+function inp_sibling(inp) { return inp.parentNode.querySelector(".ocr-sug"); }
+function _ocrPickCode(el, code) {
+  const cell = el.closest(".ocr-cell");
+  cell.querySelector(".ocr-code").value = code;
+  cell.querySelector(".ocr-sug").style.display = "none";
+  cell.querySelector(".ocr-search").value = code;
+}
+
 // 确认页：每行可核对/改正 基金代码(带识别候选下拉) + 持仓金额 + 成本 + 是否导入。
 function _renderConfirm(rows) {
   const body = rows.map((r, i) => {
@@ -105,15 +136,22 @@ function _renderConfirm(rows) {
     ).join("");
     const codeVal = r.matched_code || r.code || "";
     const matchCls = r.matched_code ? "" : "ocr-unmatched";
+    // 固定模板通道读不出基金名，改显示名称裁图供用户核对后搜索选码。
+    const nameCell = r.name_image
+      ? `<img class="ocr-nameimg" src="${r.name_image}" alt="基金名截图">
+         <span class="ocr-rate">按截图搜索选码 →</span>`
+      : `${_esc(r.name || "(未识别名称)")}
+         ${r.profit_rate != null ? `<span class="ocr-rate">识别收益率 ${r.profit_rate}%</span>` : ""}`;
     return `<div class="ocr-row ${matchCls}" data-i="${i}">
       <div class="ocr-cell ocr-name" title="${_esc(r.name || "")}">
-        <label><input type="checkbox" class="ocr-inc" ${codeVal ? "checked" : ""}> ${_esc(r.name || "(未识别名称)")}</label>
-        ${r.profit_rate != null ? `<span class="ocr-rate">识别收益率 ${r.profit_rate}%</span>` : ""}
+        <label><input type="checkbox" class="ocr-inc" ${codeVal ? "checked" : ""}> ${nameCell}</label>
       </div>
       <div class="ocr-cell">
         <input class="ocr-code" placeholder="基金代码" value="${codeVal}">
         ${cand.length ? `<select class="ocr-cand" onchange="this.closest('.ocr-row').querySelector('.ocr-code').value=this.value">
           <option value="">选候选…</option>${opts}</select>` : ""}
+        ${!cand.length ? `<input class="ocr-search" placeholder="搜名称/代码选码" oninput="_ocrRowSearch(this)" autocomplete="off">
+          <div class="ocr-sug"></div>` : ""}
         ${r.matched_code ? "" : `<span class="ocr-warn">未匹配到，请核对代码</span>`}
       </div>
       <div class="ocr-cell"><input class="ocr-hold" type="number" step="0.01" placeholder="持仓金额" value="${r.hold_amount ?? ""}"></div>

@@ -71,8 +71,8 @@ def _provider():
 
 def _provider():
     p = (os.environ.get("FUNDSIGHT_VISION_PROVIDER") or "anthropic").strip().lower()
-    if p == "local":
-        return "local"
+    if p in ("local", "template"):
+        return p
     return p if p in _DEFAULTS else "anthropic"
 
 
@@ -86,9 +86,14 @@ def _rapidocr_available():
 
 
 def is_configured():
-    """当前 provider 是否就绪：local 看 RapidOCR 是否装好，云端看是否有密钥。"""
-    if _provider() == "local":
+    """当前 provider 是否就绪：local 看 RapidOCR 是否装好，template 看校准配置是否存在，
+    云端看是否有密钥。"""
+    p = _provider()
+    if p == "local":
         return _rapidocr_available()
+    if p == "template":
+        from backend.datasource import template_ocr
+        return template_ocr.is_available()
     return bool(_api_key())
 
 
@@ -226,6 +231,9 @@ def recognize_holdings(image_bytes, mime="image/png"):
     provider = _provider()
     if provider == "local":
         return _recognize_local(image_bytes)
+    if provider == "template":
+        from backend.datasource import template_ocr
+        return template_ocr.recognize(image_bytes)
     key = _api_key()
     if not key:
         return {"ok": False, "error": "未配置识别服务（缺少 API key）"}
