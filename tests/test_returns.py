@@ -42,7 +42,10 @@ class TestPeriods(_T):
         self._nav("X", 0, 2.0)
         self._nav("X", 30, 1.0)
         self._nav("X", 90, 1.5)
-        self._nav("X", 200, 1.0)
+        # YTD 基线取 <= 今年1月1日 的最近净值,故最早点须早于年初。用 400 天前
+        # (≥ 任意日期到年初的最大间隔 365)保证不随「今天」漂移而丢失 YTD 基线,
+        # nav 仍取 1.0 以维持 max=(2.0-1.0)/1.0=100 的断言不变。
+        self._nav("X", 400, 1.0)
         from backend.models.db import get_conn
         c = get_conn()
         p = returns._compute_periods(c, "X")
