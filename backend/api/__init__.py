@@ -30,5 +30,7 @@ from backend.api import expectation; ALL_ROUTES += expectation.ROUTES  # noqa: E
 from backend.api import benchmark; ALL_ROUTES += benchmark.ROUTES  # noqa: E401,E402
 # M10B 线路 B 鉴权加固:登录审计只读接口(按 user_id 隔离,越权 404)
 from backend.api import login_audit; ALL_ROUTES += login_audit.ROUTES  # noqa: E401,E402
+# 截图识别持仓:上传理财 App 截图 → 识别 + 匹配 → 确认 → 批量导入持仓
+from backend.api import ocr_import; ALL_ROUTES += ocr_import.ROUTES  # noqa: E401,E402
 # P1b 基金排行榜:6 大类 × 5 区间 topN 榜单(只读缓存,后台日更)
 from backend.api import rank; ALL_ROUTES += rank.ROUTES  # noqa: E401,E402
