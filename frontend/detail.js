@@ -30,6 +30,7 @@ function renderDetail(view, code) {
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
     <div id="d-fundamentals" class="d-profile" hidden></div>
     <div id="d-holdings" class="d-profile" hidden></div>
+    <div id="d-compare" class="d-chart-card" hidden></div>
     <div id="d-intraday" class="d-chart-card"><div class="d-loading">实时涨幅加载中…</div></div>
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div id="d-risk" class="d-profile"><div class="d-loading">风险指标加载中…</div></div>
@@ -63,6 +64,7 @@ async function loadDetail(chartOnly) {
       renderProfile(d.profile);
       renderFundamentals(d.profile);
       loadHoldings();
+      loadCompare();
       getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/returns")
         .then(ret => renderReturns(ret.periods))
         .catch(() => { const b = $("#d-returns"); if (b) b.innerHTML = ""; });
@@ -176,6 +178,32 @@ function holdingRow(h, maxW) {
       <span class="d-hold-track"><i style="width:${barPct}%"></i></span>
       <span class="d-hold-w">${h.weight != null ? (+h.weight).toFixed(2) + "%" : "—"}</span>
     </div>`;
+}
+
+// 同类对比叠加图 —— 本基金 vs 同类平均 vs 沪深300 累计收益率(GET /api/fund/{code}/compare)。
+const _COMPARE_COLORS = { self: "#e5432f", peer: "#9aa2b3", hs300: "#2b5bd7" };
+
+async function loadCompare() {
+  const box = $("#d-compare");
+  if (!box) return;
+  let data;
+  try {
+    data = await getJSON("/api/fund/" + encodeURIComponent(_detailCode) + "/compare");
+  } catch { box.hidden = true; return; }
+  const series = ((data && data.series) || []).map(s => ({
+    name: s.name,
+    color: _COMPARE_COLORS[s.key] || "#9aa2b3",
+    points: (s.points || []).map(p => ({ label: p.date, value: p.value })),
+  })).filter(s => s.points.length >= 2);
+  if (!series.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="d-name">同类对比<span class="fcode">累计收益率 · 本基金 / 同类平均 / 沪深300</span></div>
+    <div id="d-compare-chart"></div>`;
+  renderMultiLineChart($("#d-compare-chart"), series, {
+    height: 240,
+    fmtLabel: d => String(d || "").slice(5),
+    emptyHint: "暂无对比数据",
+  });
 }
 
 function renderReturns(periods) {

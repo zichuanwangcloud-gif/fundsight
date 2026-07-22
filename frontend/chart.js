@@ -154,4 +154,118 @@
   }
 
   window.renderLineChart = renderLineChart;
+
+  // ------------------------------------------------------------------
+  // 多序列折线图 —— 同类对比叠加(本基金/同类/沪深300 累计收益率)。
+  //   renderMultiLineChart(container, series, opts)
+  //   series: [{ name, color, points:[{label, value}] }]  各序列 x 轴按索引对齐
+  //   opts  : { height, fmtValue, fmtLabel, emptyHint }
+  // ------------------------------------------------------------------
+  function renderMultiLineChart(container, series, opts) {
+    if (!container) return;
+    opts = opts || {};
+    const ss = (series || []).filter(s => s && s.points && s.points.length >= 2);
+    if (!ss.length) {
+      container.innerHTML = `<div class="d-empty">${opts.emptyHint || "暂无对比数据"}</div>`;
+      return;
+    }
+    const id = "mlc" + (++_uid);
+    const W = 700, H = opts.height || 240;
+    const padL = 46, padR = 12, padT = 12, padB = 24;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const n = Math.max(...ss.map(s => s.points.length));
+    const base = ss[0].points;   // x 轴标签取最长/首序列
+
+    let min = Infinity, max = -Infinity;
+    ss.forEach(s => s.points.forEach(p => {
+      if (p.value == null) return;
+      if (p.value < min) min = p.value;
+      if (p.value > max) max = p.value;
+    }));
+    if (!isFinite(min) || !isFinite(max)) { container.innerHTML = `<div class="d-empty">${opts.emptyHint || "暂无对比数据"}</div>`; return; }
+    const padv = (max - min) * 0.08 || 1; min -= padv; max += padv;
+    if (min === max) { min -= 1; max += 1; }
+    const span = max - min;
+
+    const xAt = i => padL + plotW * (n === 1 ? 0.5 : i / (n - 1));
+    const yAt = v => padT + plotH * (1 - (v - min) / span);
+    const fmtV = opts.fmtValue || (v => (v >= 0 ? "+" : "") + (+v).toFixed(1) + "%");
+    const fmtL = opts.fmtLabel || (l => String(l || "").slice(5));
+
+    const TICKS = 4;
+    let grid = "", ylabels = "";
+    for (let t = 0; t <= TICKS; t++) {
+      const v = min + span * t / TICKS, y = yAt(v).toFixed(1);
+      grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eef1f6" stroke-width="1"/>`;
+      ylabels += `<text x="${padL - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa2b3">${fmtV(v)}</text>`;
+    }
+    // 零轴强调(收益率 0%)
+    let zero = "";
+    if (min < 0 && max > 0) {
+      const zy = yAt(0).toFixed(1);
+      zero = `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="#c7cdda" stroke-width="1" stroke-dasharray="4 3"/>`;
+    }
+    const xIdx = n <= 2 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1];
+    const xlabels = xIdx.map(i => {
+      const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+      const lbl = (base[i] || base[base.length - 1] || {}).label;
+      return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="#9aa2b3">${fmtL(lbl)}</text>`;
+    }).join("");
+
+    const polylines = ss.map(s => {
+      const pts = s.points.map((p, i) => p.value == null ? "" : `${xAt(i).toFixed(1)},${yAt(p.value).toFixed(1)}`).filter(Boolean).join(" ");
+      return `<polyline fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" points="${pts}"/>`;
+    }).join("");
+
+    const cross = `<g id="${id}-cross" style="display:none">
+        <line id="${id}-vline" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="#9aa2b3" stroke-width="1" stroke-dasharray="3 3"/>
+      </g>`;
+    const legend = ss.map(s =>
+      `<span class="mlc-leg"><i style="background:${s.color}"></i>${s.name}</span>`).join("");
+
+    container.innerHTML = `
+      <div class="chart-wrap" id="${id}-wrap">
+        <svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+             class="chart-svg" id="${id}-svg" style="display:block;overflow:visible">
+          ${grid}${zero}${polylines}${cross}${ylabels}${xlabels}
+        </svg>
+        <div class="chart-tip" id="${id}-tip"></div>
+      </div>
+      <div class="mlc-legend">${legend}</div>`;
+
+    const wrap = document.getElementById(id + "-wrap");
+    const svg = document.getElementById(id + "-svg");
+    const tip = document.getElementById(id + "-tip");
+    const g = document.getElementById(id + "-cross");
+    const vline = document.getElementById(id + "-vline");
+    if (!wrap || !svg) return;
+
+    function onMove(ev) {
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width) return;
+      const cxp = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      let i = Math.round((cxp / rect.width) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      const vx = xAt(i);
+      vline.setAttribute("x1", vx); vline.setAttribute("x2", vx);
+      g.style.display = "";
+      const lbl = (base[i] || {}).label || "";
+      const rows = ss.map(s => {
+        const p = s.points[i];
+        const v = p ? p.value : null;
+        return `<div><i style="background:${s.color}"></i>${s.name} <b class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v == null ? "—" : fmtV(v)}</b></div>`;
+      }).join("");
+      tip.style.left = ((vx / W) * rect.width) + "px";
+      tip.style.top = (rect.height * 0.15) + "px";
+      tip.style.display = "block";
+      tip.innerHTML = `<div class="t-date">${fmtL(lbl)}</div>${rows}`;
+    }
+    function onLeave() { g.style.display = "none"; tip.style.display = "none"; }
+    wrap.addEventListener("pointermove", onMove);
+    wrap.addEventListener("pointerleave", onLeave);
+    wrap.addEventListener("touchmove", onMove, { passive: true });
+    wrap.addEventListener("touchend", onLeave);
+  }
+
+  window.renderMultiLineChart = renderMultiLineChart;
 })();
