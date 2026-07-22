@@ -27,6 +27,7 @@ from backend.scheduler import (  # noqa: E402
     maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh,
     start_quote_refresh, trigger_quote_for,
     start_index_refresh,
+    start_rank_refresh,
     start_history_refresh, trigger_history_for,
     start_profile_refresh,
     start_nav_gap_check,
@@ -553,6 +554,8 @@ def main():
     start_quote_refresh(interval_seconds=60)
     # 大盘指数:启动拉一次(收盘也能拿到最新收盘价)+ 盘中每 60 秒刷新,业务层只读(P1a)。
     start_index_refresh(interval_seconds=60)
+    # 基金排行榜:启动拉一次填充榜单 + 日更刷新(6 大类×5 区间 topN),业务层只读(P1b)。
+    start_rank_refresh(interval_hours=24)
     # 历史净值序列:后台日更持仓基金的走势数据(走势图用)。
     start_history_refresh(interval_hours=24)
     # 基本面(经理/规模/收益/费率):后台日更持仓/被查基金的 profile,变化慢故 run_now=False。

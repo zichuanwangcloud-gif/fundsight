@@ -378,6 +378,49 @@ def start_index_refresh(interval_seconds=60, index_fn=None, run_now=True):
     return t
 
 
+# ---- 基金排行榜:后台日更，排行页用（P1b） ----
+
+def _refresh_rank():
+    """抓 6 大类 × 5 区间榜单写 fund_rank。返回写入总行数。"""
+    from backend.datasource.fund_rank import refresh_rank
+    conn = get_conn()
+    try:
+        return refresh_rank(conn)
+    finally:
+        conn.close()
+
+
+def _safe_rank_refresh(rank_fn, retries=DEFAULT_RETRIES):
+    n, status, error = _record_run("rank_refresh", rank_fn)
+    if status == "ok":
+        if n:
+            print(f"[scheduler] 排行榜刷新完成,更新 {n} 行。")
+    else:
+        print(f"[scheduler] 排行榜刷新失败(不影响服务): {error}")
+        _maybe_retry("rank_refresh", rank_fn, retries)
+
+
+def start_rank_refresh(interval_hours=24, rank_fn=None, run_now=True):
+    """启动基金排行榜定时刷新 daemon 线程(日更),返回该线程。
+
+    排行数据变化慢(日更即可),run_now 启动即拉一次填充榜单;之后每 interval_hours
+    刷新。全程吞异常、落 task_run,失败不影响服务。
+    """
+    rank_fn = rank_fn or _refresh_rank
+    interval = interval_hours * 3600
+
+    def _loop():
+        if run_now:
+            _safe_rank_refresh(rank_fn)
+        while True:
+            time.sleep(interval)
+            _safe_rank_refresh(rank_fn)
+
+    t = threading.Thread(target=_loop, name="rank-refresh", daemon=True)
+    t.start()
+    return t
+
+
 # ---- 历史净值序列:后台日更，走势图用（M7） ----
 
 def _refresh_holdings_history():

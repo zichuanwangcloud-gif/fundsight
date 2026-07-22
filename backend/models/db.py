@@ -207,6 +207,26 @@ CREATE TABLE IF NOT EXISTS market_index (
     change_pct  REAL,               -- 涨跌幅 %
     updated_at  TEXT
 );
+
+-- 基金排行榜:6 大类 × 5 区间 的 topN 榜单,抓取层日更写入,业务层只读(P1b)。
+-- 对标天天基金「基金排行」逛入口。每(period,category)组先删后插,rank 为榜内名次。
+CREATE TABLE IF NOT EXISTS fund_rank (
+    period      TEXT NOT NULL,      -- 1m|3m|6m|1y|ytd(榜单排序区间)
+    category    TEXT NOT NULL,      -- all|gp|hh|zs|zq|qdii(基金大类)
+    rank        INTEGER NOT NULL,   -- 榜内名次(1 起)
+    fund_code   TEXT NOT NULL,
+    name        TEXT,
+    nav_date    TEXT,
+    nav         REAL,               -- 单位净值
+    r_1m        REAL,               -- 近1月收益 %
+    r_3m        REAL,               -- 近3月收益 %
+    r_6m        REAL,               -- 近6月收益 %
+    r_1y        REAL,               -- 近1年收益 %
+    r_ytd       REAL,               -- 今年来收益 %
+    updated_at  TEXT,
+    PRIMARY KEY (period, category, fund_code)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_rank_lookup ON fund_rank(period, category, rank);
 """
 
 # 种子数据：开发期用，部署后由 fund_list_sync.py 拉全量覆盖
