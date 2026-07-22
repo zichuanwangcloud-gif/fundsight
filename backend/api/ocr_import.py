@@ -168,7 +168,7 @@ def import_holdings(rows, user_id):
 def _h_status(ctx):
     if ctx.user_id is None:
         return (401, {"error": "unauthorized"})
-    return {"configured": vision_ocr.is_configured()}
+    return {"configured": vision_ocr.is_configured(), "provider": vision_ocr.provider_name()}
 
 
 def _h_recognize(ctx):

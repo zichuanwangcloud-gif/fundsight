@@ -190,7 +190,102 @@ class TestImportHoldings(OcrTestBase):
         self.assertEqual(ocr_import._h_status(Ctx(user_id=None))[0], 401)
 
     def test_status_handler(self):
-        self.assertEqual(ocr_import._h_status(Ctx(user_id=1)), {"configured": False})
+        out = ocr_import._h_status(Ctx(user_id=1))
+        self.assertFalse(out["configured"])
+        self.assertEqual(out["provider"], "anthropic")
+
+
+def _box(x0, y0, x1, y1):
+    """左上/右下 → RapidOCR 的 4 点框。"""
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+
+
+def _alipay_like_ocr():
+    """合成一张支付宝式持仓截图的 OCR 结果（两只基金），不依赖真实 RapidOCR。
+
+    每只基金：名称行（含 6 位代码）→ 持有收益行（带正负号 + 收益率%）→ 持仓金额行。
+    """
+    return [
+        # 基金 1
+        [_box(40, 90, 240, 118), "易方达蓝筹精选混合", 0.99],
+        [_box(280, 92, 360, 116), "005827", 0.98],
+        [_box(40, 140, 130, 166), "持有收益", 0.97],
+        [_box(150, 140, 250, 166), "+345.67", 0.98],
+        [_box(270, 140, 330, 166), "收益率", 0.97],
+        [_box(340, 140, 420, 166), "+2.9%", 0.98],
+        [_box(40, 182, 130, 208), "持仓金额", 0.97],
+        [_box(150, 182, 280, 208), "12,345.67", 0.98],
+        # 基金 2
+        [_box(40, 290, 240, 318), "招商中证白酒指数", 0.99],
+        [_box(40, 340, 130, 366), "持有收益", 0.97],
+        [_box(150, 340, 250, 366), "-500.00", 0.98],
+        [_box(270, 340, 330, 366), "收益率", 0.97],
+        [_box(340, 340, 420, 366), "-5.90%", 0.98],
+        [_box(40, 382, 130, 408), "持仓金额", 0.97],
+        [_box(150, 382, 280, 408), "8,000.00", 0.98],
+    ]
+
+
+class TestLocalLayoutParser(OcrTestBase):
+    """本地 OCR 版面启发式解析（纯函数，不需安装 rapidocr）。"""
+
+    def test_parse_two_funds(self):
+        rows = vision_ocr._parse_ocr_result(_alipay_like_ocr())
+        self.assertEqual(len(rows), 2)
+        f1, f2 = rows
+        self.assertEqual(f1["name"], "易方达蓝筹精选混合")
+        self.assertEqual(f1["code"], "005827")
+        self.assertEqual(f1["hold_amount"], 12345.67)   # 无符号金额取最大 → 持仓金额
+        self.assertEqual(f1["profit"], 345.67)          # 带 + 号 → 收益
+        self.assertEqual(f1["profit_rate"], 2.9)
+        self.assertEqual(f2["name"], "招商中证白酒指数")
+        self.assertEqual(f2["hold_amount"], 8000.0)
+        self.assertEqual(f2["profit"], -500.0)          # 带 - 号 → 收益(负)
+        self.assertEqual(f2["profit_rate"], -5.9)
+
+    def test_labels_not_taken_as_name(self):
+        # 「持有收益」「持仓金额」等纯标签行不应被当成基金名而新开记录。
+        rows = vision_ocr._parse_ocr_result(_alipay_like_ocr())
+        self.assertEqual([r["name"] for r in rows],
+                         ["易方达蓝筹精选混合", "招商中证白酒指数"])
+
+    def test_empty_and_garbage(self):
+        self.assertEqual(vision_ocr._parse_ocr_result([]), [])
+        self.assertEqual(vision_ocr._parse_ocr_result([[None, "", 0.1]]), [])
+        # 只有数字没有基金名 → 无记录
+        self.assertEqual(vision_ocr._parse_ocr_result([[_box(0, 0, 50, 20), "123.45", 0.9]]), [])
+
+    def test_amount_value_signed_and_clean(self):
+        self.assertEqual(vision_ocr._amount_value("+345.67"), (345.67, True))
+        self.assertEqual(vision_ocr._amount_value("-500.00"), (-500.0, True))
+        self.assertEqual(vision_ocr._amount_value("12,345.67"), (12345.67, False))
+        self.assertEqual(vision_ocr._amount_value("¥8,000"), (8000.0, False))
+
+
+class TestLocalProviderDegrade(OcrTestBase):
+    """provider=local 且未安装 RapidOCR 时的优雅降级（不触网、不崩）。"""
+
+    def setUp(self):
+        super().setUp()
+        os.environ["FUNDSIGHT_VISION_PROVIDER"] = "local"
+
+    def test_is_configured_reflects_engine_availability(self):
+        # 测试环境未装 rapidocr → local 视为未就绪。
+        expected = vision_ocr._rapidocr_available()
+        self.assertEqual(vision_ocr.is_configured(), expected)
+
+    def test_recognize_holdings_graceful_when_missing(self):
+        if vision_ocr._rapidocr_available():
+            self.skipTest("已安装 rapidocr，跳过缺依赖降级用例")
+        out = vision_ocr.recognize_holdings(b"\x89PNG fake", "image/png")
+        self.assertFalse(out["ok"])
+        self.assertIn("OCR", out["error"])
+
+    def test_import_recognize_returns_not_configured_when_missing(self):
+        if vision_ocr._rapidocr_available():
+            self.skipTest("已安装 rapidocr，跳过缺依赖降级用例")
+        out = ocr_import.recognize("data:image/png;base64,QUJD", user_id=1)
+        self.assertEqual(out, {"configured": False, "rows": []})
 
 
 if __name__ == "__main__":

@@ -10,5 +10,11 @@
 #                     接入调用，属于规划中的可选能力，需要时再手动
 #                     `pip install akshare` 并按需接入 backend/datasource/。
 #
+#   rapidocr_onnxruntime —— 截图识别持仓的「本地 OCR 通道」
+#                     (FUNDSIGHT_VISION_PROVIDER=local)。纯 pip、无需系统二进制、
+#                     中文较准、截图不出本机。未安装时该通道优雅降级为手动录入；
+#                     也可改用云端大模型通道(设 ANTHROPIC_API_KEY)，二者任选其一。
+#
 # 如需安装可选依赖，取消下一行注释：
 # akshare
+# rapidocr_onnxruntime

@@ -3,6 +3,7 @@
 // 复用 app.js 的 $ / getJSON / showAuth；导入成功后调 portfolio.js 的 load() 刷新。
 
 let _ocrFileInput = null;
+let _ocrProvider = null;   // 当前识别通道：local=本机识别，其余=云端服务
 
 function _ensureOcrFileInput() {
   if (_ocrFileInput) return _ocrFileInput;
@@ -22,14 +23,19 @@ async function openOcrImport() {
   try {
     const r = await fetch("/api/ocr/status", { credentials: "same-origin" });
     if (r.status === 401) return showAuth();
-    configured = (await r.json()).configured;
+    const s = await r.json();
+    configured = s.configured;
+    _ocrProvider = s.provider;
   } catch (e) { /* 网络异常按未配置处理 */ }
 
   if (!configured) {
     _ocrOverlay(`
       <h3>截图识别未启用</h3>
-      <p class="ocr-note">该功能需配置一个视觉大模型识别服务（自用私享，密钥不入库）。
-      在服务端设置环境变量后重启即可启用：</p>
+      <p class="ocr-note">该功能需一个识别引擎（自用私享，密钥/截图不入库）。二选一，配好后重启服务：</p>
+      <p class="ocr-note"><b>方案 A · 本地 OCR（截图不出本机，合规更稳）</b></p>
+      <pre class="ocr-env">pip install rapidocr_onnxruntime
+export FUNDSIGHT_VISION_PROVIDER=local</pre>
+      <p class="ocr-note"><b>方案 B · 云端视觉大模型（识别更准，截图会发往所配服务）</b></p>
       <pre class="ocr-env">export ANTHROPIC_API_KEY=你的密钥
 # 或指向 OpenAI 兼容/自建服务：
 export FUNDSIGHT_VISION_PROVIDER=openai
@@ -48,8 +54,11 @@ async function _onOcrFileChosen(e) {
   e.target.value = "";  // 允许连续选同一文件
   if (!file) return;
 
+  const notice = _ocrProvider === "local"
+    ? "🖥️ 正在本机识别（截图不出本机、不留存），首次加载模型稍慢，请稍候。"
+    : "📷 截图正发送至已配置的识别服务，仅内存处理、不留存，请稍候。";
   _ocrOverlay(`<h3>识别中…</h3>
-    <p class="ocr-note">📷 截图正发送至已配置的识别服务，仅内存处理、不留存，请稍候。</p>
+    <p class="ocr-note">${notice}</p>
     <div class="ocr-spin">解析持仓中…</div>`);
 
   let dataUrl;
