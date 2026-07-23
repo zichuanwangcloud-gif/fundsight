@@ -52,10 +52,11 @@ function renderPortfolio(view) {
       if (r.status === 401) return showAuth();
       const funds = await r.json();
       results.innerHTML = funds.map(f =>
-        `<div onclick='openDlg(${JSON.stringify(f).replace(/'/g, "&#39;")})'>
+        `<div role="button" tabindex="0" aria-label="添加自选 ${f.name}"
+              onclick='openDlg(${JSON.stringify(f).replace(/'/g, "&#39;")})'>
            ${f.name}<span class="code">${f.fund_code}</span>
            <span class="type">${f.fund_type || ""}</span></div>`).join("")
-        || `<div style="color:#a0a8b8">无匹配结果</div>`;
+        || `<div class="results-none">无匹配结果</div>`;
       results.style.display = "block";
     }, 200);
   });
@@ -105,7 +106,7 @@ async function submitHolding() {
   $("#dlg").close(); load();
 }
 async function del(id) {
-  if (!confirm("移除这只自选？")) return;
+  if (!(await confirmDialog("移除这只自选?", { okText: "移除", danger: true }))) return;
   const r = await fetch("/api/holdings/" + id, { method: "DELETE", credentials: "same-origin" });
   if (r.status === 401) return showAuth();
   load();
@@ -130,7 +131,7 @@ function renderSummary(s) {
       <span class="s-title">组合总览 · ${s.count} 只自选</span>
       <span class="s-refresh">
         <span class="s-time">更新于 ${now}</span>
-        <button onclick="load()">🔄 刷新</button>
+        <button onclick="load()" aria-label="刷新组合数据"><span class="s-refresh-ico">🔄</span> 刷新</button>
       </span>
     </div>
     <div class="s-grid">
@@ -144,15 +145,24 @@ function renderSummary(s) {
   box.style.display = "block";
 }
 
+let _pfLoading = false;
 async function load() {
-  const r = await fetch("/api/holdings", { credentials: "same-origin" });
-  if (r.status === 401) return showAuth();
-  const data = await r.json();
-  const items = data.items || [];
-  renderSummary(data.summary);
-  loadAllocation();
-  if (!items.length) { $("#list").innerHTML = `<div class="empty">还没有自选，搜索基金加入吧 👆</div>`; return; }
-  $("#list").innerHTML = items.map(it => {
+  if (_pfLoading) return;                       // 防抖:加载中忽略重复点击(如连点刷新)
+  _pfLoading = true;
+  const refreshBtn = document.querySelector("#summary .s-refresh button");
+  if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add("spinning"); }
+  const list = $("#list");
+  if (list && !list.children.length) list.innerHTML = `<div class="empty">加载持仓中…</div>`;
+  try {
+    const r = await fetch("/api/holdings", { credentials: "same-origin" });
+    if (r.status === 401) { showAuth(); return; }
+    if (!r.ok) throw new Error("holdings " + r.status);
+    const data = await r.json();
+    const items = data.items || [];
+    renderSummary(data.summary);
+    loadAllocation();
+    if (!items.length) { $("#list").innerHTML = `<div class="empty">还没有自选，搜索基金加入吧 👆</div>`; return; }
+    $("#list").innerHTML = items.map(it => {
     const z = it.gszzl;
     const pl = it.today_pl;
     const cr = it.cost_return_rate;
@@ -163,8 +173,8 @@ async function load() {
     if (it.hit_stop_profit) badges.push(`<span class="badge profit">🎯 止盈</span>`);
     if (it.hit_stop_loss) badges.push(`<span class="badge loss">⚠️ 止损</span>`);
     return `<div class="${cardCls.join(" ")}">
-      <span class="del" onclick="del(${it.id})">移除 ✕</span>
-      <span class="edit" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑 ✎</span>
+      <button type="button" class="del" aria-label="移除自选" onclick="del(${it.id})">移除 ✕</button>
+      <button type="button" class="edit" aria-label="编辑持仓" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑 ✎</button>
       <div class="top">
         <div><span class="fname">${it.name || it.fund_code}</span>
              <span class="fcode">${it.fund_code}</span></div>
@@ -184,8 +194,15 @@ async function load() {
       ${badges.length ? `<div class="badges">${badges.join("")}</div>` : ""}
       <div class="gztime">${it.gztime ? ("估值时间 " + it.gztime) : ""}${staleHint(it.quote_updated_at)}</div>
     </div>`;
-  }).join("");
-  loadSparklines(items);
+    }).join("");
+    loadSparklines(items);
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="empty">持仓加载失败，请检查网络后重试<br>
+      <button class="ghost" style="margin-top:12px" onclick="load()">重试</button></div>`;
+    if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove("spinning"); }
+  } finally {
+    _pfLoading = false;
+  }
 }
 
 // 净值序列 → 迷你 SVG 折线(零依赖)。points: [{d,v}]
@@ -202,7 +219,7 @@ function sparkline(points) {
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const up = points[n - 1].v >= points[0].v;
-  const color = up ? "#e0483d" : "#16a34a";
+  const color = up ? "#e5432f" : "#0f9d58";   // 与 theme.css --up / --down 一致
   const pct = (((points[n - 1].v - points[0].v) / points[0].v) * 100).toFixed(1);
   return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
       <polyline fill="none" stroke="${color}" stroke-width="1.5"
@@ -223,7 +240,7 @@ async function loadSparklines(items) {
 }
 
 // 资产配置饼图 + 持仓集中度(PRD-03)。数据来自 GET /api/portfolio/summary。
-const ALLOC_PALETTE = ["#3b7cff","#e0483d","#16a34a","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#64748b","#a3a3a3"];
+const ALLOC_PALETTE = ["#2b5bd7","#e5432f","#0f9d58","#f59e0b","#8b5cf6","#06b6d4","#ec4899","#64748b","#a3a3a3"];
 
 function allocationPieSvg(allocation) {
   const items = (allocation || []).filter(a => a.amount > 0);
