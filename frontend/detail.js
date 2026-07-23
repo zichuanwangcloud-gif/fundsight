@@ -280,7 +280,7 @@ function costCurveSvg(points) {
   const dots = points.map((p, i) => {
     if (p.weighted_price == null) return "";
     const cx = xAt(i).toFixed(1), cy = yAt(p.weighted_price).toFixed(1);
-    return `<circle cx="${cx}" cy="${cy}" r="3.4" fill="#3b7cff">
+    return `<circle cx="${cx}" cy="${cy}" r="3.4" fill="#2b5bd7">
               <title>${p.date}  加权 ${p.weighted_price}</title>
             </circle>`;
   }).join("");
@@ -333,8 +333,8 @@ function attributionSvg(period) {
   const dots = period.batches.map((b, i) => {
     const cx = xAt(i).toFixed(1);
     const r = Math.max(2, (Math.abs(b.contribution) / maxAbs) * (h / 2 - 2));
-    // 半径表达贡献量;颜色按贡献正负
-    const fill = b.contribution >= 0 ? "#e0483d" : "#16a34a";
+    // 半径表达贡献量;颜色按贡献正负(与 --up / --down 一致)
+    const fill = b.contribution >= 0 ? "#e5432f" : "#0f9d58";
     return `<circle cx="${cx}" cy="${mid.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" opacity="0.8">
               <title>${b.date}  贡献 ${b.contribution}  占比 ${(b.ratio * 100).toFixed(1)}%</title>
             </circle>`;

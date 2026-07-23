@@ -10,10 +10,11 @@
 
 .mkt-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
 .mkt-tab {
-  padding: 7px 14px; font-size: 13px; color: var(--ink-2); background: #eef1f7;
+  padding: 9px 15px; font-size: 13px; color: var(--ink-2); background: var(--chip);
   border-radius: var(--r-pill); cursor: pointer; user-select: none; transition: background .15s, color .15s;
+  border: none; font-family: inherit; min-height: 40px;
 }
-.mkt-tab:hover { background: #e4e8f1; }
+.mkt-tab:hover { background: var(--chip-hover); }
 .mkt-tab.active { background: var(--brand); color: #fff; font-weight: 600; }
 .mkt-tab-n { margin-left: 5px; font-size: 11px; opacity: .75; }
 
@@ -31,8 +32,8 @@
 
 .mkt-add {
   flex-shrink: 0; margin-left: 12px; background: var(--brand); color: #fff; border: none;
-  border-radius: var(--r-sm); padding: 7px 15px; font-size: 12px; font-weight: 600; cursor: pointer;
-  transition: filter .15s;
+  border-radius: var(--r-sm); padding: 10px 16px; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: filter .15s; min-height: 40px;
 }
 .mkt-add:hover { filter: brightness(1.06); }
 .mkt-add:disabled { opacity: .55; cursor: default; }
@@ -45,7 +46,7 @@
 
 .mkt-more { text-align: center; margin-top: 14px; }
 .mkt-more button {
-  background: #eef1f7; color: var(--ink-2); border: none; border-radius: var(--r-sm);
+  background: var(--chip); color: var(--ink-2); border: none; border-radius: var(--r-sm);
   padding: 10px 22px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s;
 }
-.mkt-more button:hover { background: #e4e8f1; }
+.mkt-more button:hover { background: var(--chip-hover); }

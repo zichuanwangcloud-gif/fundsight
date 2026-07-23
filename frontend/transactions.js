@@ -39,9 +39,15 @@ async function openTransactions(code) {
   $("#tx-dlg-title").textContent = "交易记录 · " + code;
   $("#tx-shares").value = "";
   $("#tx-price").value = "";
-  $("#tx-date").value = new Date().toISOString().slice(0, 10);
+  $("#tx-date").value = _todayLocal();  // 默认今天(本地时区,避免 UTC 偏差)
   await loadTransactions();
   $("#tx-dlg").showModal();
+}
+
+// 本地时区的今天 YYYY-MM-DD(toISOString 取的是 UTC,晚间会偏成昨天)。
+function _todayLocal() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
 function _txNum(n) { return n == null ? "—" : Number(n).toLocaleString(); }
@@ -63,7 +69,7 @@ async function loadTransactions() {
         <span>${it.trade_date || ""}</span>
         <span>${it.shares} 份 @ ${it.price ?? "—"}</span>
         <span>${_txNum(it.amount)} 元</span>
-        <span class="tx-del" onclick="deleteTransaction(${it.id})">删除</span>
+        <span class="tx-del" role="button" tabindex="0" aria-label="删除交易流水" onclick="deleteTransaction(${it.id})">删除</span>
       </div>`).join("")
     : `<div class="empty">还没有交易记录</div>`;
 }
@@ -81,14 +87,14 @@ async function submitTransaction() {
     credentials: "same-origin", body,
   });
   if (r.status === 401) return showAuth();
-  if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || "提交失败"); return; }
+  if (!r.ok) { const d = await r.json().catch(() => ({})); toast(d.error || "提交失败"); return; }
   $("#tx-shares").value = "";
   $("#tx-price").value = "";
   loadTransactions();
 }
 
 async function deleteTransaction(id) {
-  if (!confirm("删除这笔交易流水？")) return;
+  if (!(await confirmDialog("删除这笔交易流水?", { okText: "删除", danger: true }))) return;
   const r = await fetch("/api/transactions/" + id, { method: "DELETE", credentials: "same-origin" });
   if (r.status === 401) return showAuth();
   loadTransactions();
