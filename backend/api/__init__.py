@@ -34,3 +34,5 @@ from backend.api import login_audit; ALL_ROUTES += login_audit.ROUTES  # noqa: E
 from backend.api import ocr_import; ALL_ROUTES += ocr_import.ROUTES  # noqa: E401,E402
 # P1b 基金排行榜:6 大类 × 5 区间 topN 榜单(只读缓存,后台日更)
 from backend.api import rank; ALL_ROUTES += rank.ROUTES  # noqa: E401,E402
+# AI 分析 + MCP:聊天窗/一键分析(tool-loop) + /mcp(JSON-RPC 供外部 MCP 客户端)
+from backend.api import ai; ALL_ROUTES += ai.ROUTES  # noqa: E401,E402

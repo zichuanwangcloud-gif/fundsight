@@ -25,6 +25,8 @@ function renderDetail(view, code) {
   view.innerHTML = `
     <div class="detail-head">
       <button class="ghost back" onclick="history.back()">← 返回</button>
+      <button class="d-ai-btn" id="d-ai-btn"
+              onclick="aiAnalyzeFund(_detailCode)">🤖 AI 分析</button>
       <button class="primary" id="d-add-btn" onclick="addToHoldings()">＋ 加自选</button>
     </div>
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>

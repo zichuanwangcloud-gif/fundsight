@@ -45,6 +45,7 @@ window.addEventListener("hashchange", renderRoute);
 function startApp() {
   if (!location.hash) location.hash = "#/portfolio";  // 默认「我的持仓」
   renderRoute();
+  if (typeof mountAiWidget === "function") mountAiWidget();  // AI 悬浮助手(登录后挂载)
 }
 
 // ---- 站内通知轮询 + 浮窗(M9-D) ----
