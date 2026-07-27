@@ -107,16 +107,20 @@ CREATE INDEX IF NOT EXISTS idx_fund_list_pinyin ON fund_list(pinyin);
 -- 自选按用户隔离，加索引加速 WHERE user_id=? 过滤
 CREATE INDEX IF NOT EXISTS idx_holding_user ON holding(user_id);
 
--- 交易流水：买卖记录，持仓由 compute_position() 对流水加权推导，不单独存持仓表
+-- 交易流水：买卖记录，持仓由 compute_position() 对流水加权推导，不单独存持仓表。
+-- 加仓/减仓 会计上就是 buy/sell（语义标签由 list_transactions 回放派生，不落库）。
+-- 基金转换（A→B 振替）落成对流水：convert_out(转出A) + convert_in(转入B)，
+-- 两腿共享同一 link_id 关联；普通 buy/sell 的 link_id 为 NULL。
 CREATE TABLE IF NOT EXISTS fund_transaction (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER DEFAULT 0,
     fund_code   TEXT NOT NULL,
-    action      TEXT,    -- buy | sell
+    action      TEXT,    -- buy | sell | convert_out | convert_in
     shares      REAL,
     price       REAL,
     amount      REAL,
     trade_date  TEXT,
+    link_id     INTEGER, -- 转换成对流水的关联 id（两腿同值）；buy/sell 为 NULL
     created_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_fund_transaction_user_code
@@ -331,6 +335,12 @@ def _ensure_columns(conn):
         conn.execute(
             "UPDATE holding SET kind='hold' WHERE kind IS NULL AND hold_amount IS NOT NULL")
         conn.execute("UPDATE holding SET kind='watch' WHERE kind IS NULL")
+
+    # 基金转换：fund_transaction 加 link_id（成对转换的转出/转入两腿共享同一值，
+    # 关联 convert_out↔convert_in；普通 buy/sell 为 NULL）。
+    tx_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_transaction)")}
+    if "link_id" not in tx_cols:
+        conn.execute("ALTER TABLE fund_transaction ADD COLUMN link_id INTEGER")
 
 
 def init_db(with_seed=True):

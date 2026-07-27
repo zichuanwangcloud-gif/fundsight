@@ -80,10 +80,13 @@ def get_returns(ctx):
 # fund_nav_history,不落新表。新端点读私有交易数据,故校验登录态。
 # --------------------------------------------------------------------------- #
 def _buy_rows(conn, code):
-    """该基金全部买入流水,按 trade_date 升序(基金维度,不按用户隔离)。"""
+    """该基金全部买入流水,按 trade_date 升序(基金维度,不按用户隔离)。
+
+    含转换转入(convert_in):转入份额建立 B 的新成本,应计入成本曲线批次。
+    """
     return conn.execute(
         "SELECT shares, price, amount, trade_date FROM fund_transaction "
-        "WHERE fund_code=? AND action='buy' AND shares IS NOT NULL AND shares>0 "
+        "WHERE fund_code=? AND action IN ('buy','convert_in') AND shares IS NOT NULL AND shares>0 "
         "ORDER BY trade_date, id",
         (code,),
     ).fetchall()
@@ -372,12 +375,12 @@ def _sell_review(conn, code, user_id):
         s = r["shares"] or 0.0
         amt = r["amount"] or 0.0
         d = _parse_trade_date(r["trade_date"])
-        if r["action"] == "buy":
+        if r["action"] in ("buy", "convert_in"):
             shares += s
             cost += amt
             if d is not None:
                 w_ord += s * d
-        elif r["action"] == "sell":
+        elif r["action"] in ("sell", "convert_out"):
             if shares <= 0:
                 continue
             avg_cost = cost / shares

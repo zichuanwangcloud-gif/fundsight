@@ -100,5 +100,26 @@ class TestSellReview(_T):
         self.assertIn("/api/fund/{code}/realized", paths)
 
 
+class TestConvertLegsInReview(_T):
+    """转换两腿纳入卖出复盘:convert_out 计入已实现,convert_in 计入成本累计。"""
+
+    def test_convert_out_counts_as_realized(self):
+        # 建仓 A 1000份@1.0;转出 400份市值600(2026-01-31)→ 落袋 600-400=200
+        self._tx(1, "A", "buy", 1000, 1000, "2026-01-01")
+        self._tx(1, "A", "convert_out", 400, 600, "2026-01-31")
+        r = self._review("A")
+        self.assertTrue(r["has_sells"])
+        self.assertEqual(r["sells"][0]["realized_pnl"], 200.0)
+        self.assertEqual(r["realized_pnl"], 200.0)
+
+    def test_convert_in_builds_cost_for_review(self):
+        # B 由转入建仓:convert_in 1000份成本1000;再卖500得800 → 落袋 800-500=300
+        self._tx(1, "B", "convert_in", 1000, 1000, "2026-01-01")
+        self._tx(1, "B", "sell", 500, 800, "2026-02-01")
+        r = self._review("B")
+        self.assertTrue(r["has_sells"])
+        self.assertEqual(r["sells"][0]["realized_pnl"], 300.0)
+
+
 if __name__ == "__main__":
     unittest.main()
