@@ -9,10 +9,20 @@
 let _pfTimer = null;
 let editingId = null;   // null=新增,非空=编辑该持仓 id
 let dlgKind = "watch";  // 当前弹窗模式:'watch'(加自选) / 'hold'(记持有)
+let _pfTab = "hold";    // 当前分区 tab:'hold'(持有) / 'watch'(自选),跨刷新保持
 
 // 是否为「持有」:与后端 summarize 口径一致(kind==='hold' 或已录持仓金额)
 function isHold(it) {
   return it.kind === "hold" || it.hold_amount != null;
+}
+
+// 切换持有/自选 tab
+function switchPfTab(tab) {
+  _pfTab = tab;
+  $("#tab-btn-hold").classList.toggle("active", tab === "hold");
+  $("#tab-btn-watch").classList.toggle("active", tab === "watch");
+  $("#tab-hold").hidden = tab !== "hold";
+  $("#tab-watch").hidden = tab !== "watch";
 }
 
 function renderPortfolio(view) {
@@ -26,14 +36,16 @@ function renderPortfolio(view) {
       <button onclick="openOcrImport()">📷 上传截图识别持仓</button>
       <span class="ocr-privacy">支付宝/天天基金等持仓截图，自动识别基金与金额，核对后一键导入</span>
     </div>
-    <div id="summary" class="summary"></div>
-    <div id="pf-allocation" class="summary"></div>
-    <div id="hold-section">
-      <div class="sec-head"><span class="sec-title">💰 我的持有</span></div>
+    <div class="pf-tabs">
+      <button id="tab-btn-hold" class="pf-tab active" onclick="switchPfTab('hold')">💰 持有 <span id="tab-n-hold" class="pf-tab-n"></span></button>
+      <button id="tab-btn-watch" class="pf-tab" onclick="switchPfTab('watch')">⭐ 自选 <span id="tab-n-watch" class="pf-tab-n"></span></button>
+    </div>
+    <div id="tab-hold" class="pf-panel">
+      <div id="summary" class="summary"></div>
+      <div id="pf-allocation" class="summary"></div>
       <div id="hold-list"></div>
     </div>
-    <div id="watch-section">
-      <div class="sec-head"><span class="sec-title">⭐ 自选关注</span><span id="watch-count" class="sec-sub"></span></div>
+    <div id="tab-watch" class="pf-panel" hidden>
       <div id="watch-list"></div>
     </div>
     <dialog id="dlg">
@@ -307,20 +319,15 @@ async function load() {
       : `<div class="empty">还没有持有。搜索基金选「💰 记持有」录入金额，这里会算今日盈亏与真实收益。</div>`;
 
     // 自选分区
-    const watchSec = $("#watch-section");
-    $("#watch-count").textContent = watches.length ? `${watches.length} 只` : "";
-    if (watches.length) {
-      $("#watch-list").innerHTML = watches.map(renderWatchCard).join("");
-      watchSec.style.display = "block";
-    } else {
-      // 无自选时,若也无持有则给引导,否则整块隐藏保持清爽
-      if (!holds.length) {
-        $("#watch-list").innerHTML = `<div class="empty">搜索基金加入自选，随时关注涨跌 👆</div>`;
-        watchSec.style.display = "block";
-      } else {
-        watchSec.style.display = "none";
-      }
-    }
+    $("#watch-list").innerHTML = watches.length
+      ? watches.map(renderWatchCard).join("")
+      : `<div class="empty">还没有自选。搜索基金加入关注，随时看涨跌 👆</div>`;
+
+    // tab 计数 + 保持当前 tab
+    $("#tab-n-hold").textContent = holds.length ? `(${holds.length})` : "";
+    $("#tab-n-watch").textContent = watches.length ? `(${watches.length})` : "";
+    switchPfTab(_pfTab);
+
     loadSparklines(items);
   } catch (e) {
     if (holdList) holdList.innerHTML = `<div class="empty">加载失败，请检查网络后重试<br>
