@@ -256,26 +256,52 @@ def add_holding(data, user_id):
     conn = get_conn()
     hold_amount = _num(data.get("hold_amount"))
     kind = _kind_of(data.get("kind"), hold_amount)
-    conn.execute(
-        "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,target_rate,target_price,"
-        "stop_profit,stop_loss,kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
-        (
-            user_id,
-            data.get("fund_code"),
-            hold_amount,
-            _num(data.get("cost_amount")),
-            _num(data.get("target_rate")),
-            _num(data.get("target_price")),
-            _num(data.get("stop_profit")),
-            _num(data.get("stop_loss")),
-            kind,
-        ),
-    )
-    conn.commit()
-    conn.close()
-    # 补空窗：新增持仓后后台拉一次该基金估值，用户几秒内即可见，
-    # 无需等 60 秒定时周期（拉取失败由定时任务兜底）。
     code = data.get("fund_code")
+    # 去重幂等:同一 (user_id, fund_code) 只保留一行(持有 ⊆ 自选)。
+    #  - 已存在 + 本次带金额 → 升级/更新为持有(显式记持有或补金额)。
+    #  - 已存在 + 本次无金额(加自选) → 原样保留,绝不重复插入、绝不降级或清空金额。
+    #  - 不存在 → 正常插入。
+    existing = conn.execute(
+        "SELECT id FROM holding WHERE user_id=? AND fund_code=?", (user_id, code)
+    ).fetchone()
+    if existing:
+        if hold_amount is not None:
+            conn.execute(
+                "UPDATE holding SET hold_amount=?,cost_amount=?,target_rate=?,"
+                "target_price=?,stop_profit=?,stop_loss=?,kind=? WHERE id=?",
+                (
+                    hold_amount,
+                    _num(data.get("cost_amount")),
+                    _num(data.get("target_rate")),
+                    _num(data.get("target_price")),
+                    _num(data.get("stop_profit")),
+                    _num(data.get("stop_loss")),
+                    kind,
+                    existing["id"],
+                ),
+            )
+            conn.commit()
+        conn.close()
+    else:
+        conn.execute(
+            "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,target_rate,target_price,"
+            "stop_profit,stop_loss,kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+            (
+                user_id,
+                code,
+                hold_amount,
+                _num(data.get("cost_amount")),
+                _num(data.get("target_rate")),
+                _num(data.get("target_price")),
+                _num(data.get("stop_profit")),
+                _num(data.get("stop_loss")),
+                kind,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    # 补空窗：新增/更新持仓后后台拉一次该基金估值，用户几秒内即可见，
+    # 无需等 60 秒定时周期（拉取失败由定时任务兜底）。
     if code:
         trigger_quote_for(code)
         trigger_nav_for(code)     # 官方净值(nav/nav_prev/名称),不依赖 fundgz,真实盈亏即时可算

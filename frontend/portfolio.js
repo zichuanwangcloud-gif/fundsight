@@ -1,14 +1,14 @@
-// 「我的基金」页 —— 搜索 + 自选(纯关注列表) / 持有(真实收益+今日估值卡片) 双分区。
+// 「我的基金」页 —— 搜索 + 自选(全集) / 持有(有金额子集) 双 Tab。
 // 由 app.js 的路由在 #/portfolio 时调用 registerPage 的渲染函数。
 // cls / scls / sign / $ 来自 app.js(全局)。
 //
 // 数据模型:GET /api/holdings 返回 items(每条带 kind:'hold'|'watch') + summary(hold_count/watch_count)。
-//   持有(kind==='hold' 或有 hold_amount):算今日估值/收盘真实盈亏/止盈止损,进组合总览。
-//   自选(kind==='watch' 且无金额):仅关注,展示涨跌幅+走势,不进任何金额汇总。
+//   持有 ⊆ 自选:有金额(kind==='hold' 或 hold_amount!=null)即「持有」,进组合盈亏/估值/止盈止损。
+//   自选 Tab 展示全集(所有跟踪的基金),持有项打「持有」徽标;持有 Tab 只展示子集。
+//   「加」只能加自选(不带金额);补金额(转持有/编辑)才成持有。
 
 let _pfTimer = null;
 let editingId = null;   // null=新增,非空=编辑该持仓 id
-let dlgKind = "watch";  // 当前弹窗模式:'watch'(加自选) / 'hold'(记持有)
 let _pfTab = "hold";    // 当前分区 tab:'hold'(持有) / 'watch'(自选),跨刷新保持
 
 // 是否为「持有」:与后端 summarize 口径一致(kind==='hold' 或已录持仓金额)
@@ -50,13 +50,9 @@ function renderPortfolio(view) {
     </div>
     <dialog id="dlg">
       <h3 id="dlg-title">添加自选</h3>
-      <div class="dlg-kind">
-        <button type="button" id="kind-watch" class="kbtn" onclick="setDlgKind('watch')">⭐ 加自选</button>
-        <button type="button" id="kind-hold" class="kbtn" onclick="setDlgKind('hold')">💰 记持有</button>
-      </div>
-      <p class="dlg-hint" id="dlg-hint">自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益请选「记持有」。</p>
+      <p class="dlg-hint" id="dlg-hint">自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益，加入后在自选卡片点「转持有」补录金额。</p>
       <input type="hidden" id="d-code">
-      <div id="d-hold-fields">
+      <div id="d-hold-fields" hidden>
         <label>持仓金额（元）</label>
         <input id="d-hold" type="number" step="0.01" placeholder="如 10000">
         <label>买入成本（元，可留空）</label>
@@ -102,28 +98,23 @@ function renderPortfolio(view) {
   load();
 }
 
-// 弹窗模式切换:自选隐藏金额字段,持有展开全部字段
-function setDlgKind(kind) {
-  dlgKind = kind;
-  const watchMode = kind === "watch";
-  $("#kind-watch").classList.toggle("active", watchMode);
-  $("#kind-hold").classList.toggle("active", !watchMode);
-  $("#d-hold-fields").hidden = watchMode;
-  $("#dlg-hint").textContent = watchMode
-    ? "自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益请选「记持有」。"
-    : "记持有会按金额算今日估值、收盘真实盈亏与止盈止损，并计入组合总览。";
-  $("#dlg-submit").textContent = editingId ? "保存" : (watchMode ? "加入自选" : "加入持有");
+// 弹窗字段显隐:金额区仅编辑/转持有时展开;纯新增自选隐藏(加只能加自选)。
+// kind 不再显式选择,由后端按「是否录金额」推断(_kind_of)。
+function _dlgShowAmount(show) {
+  $("#d-hold-fields").hidden = !show;
 }
 
 function openDlg(f) {
   const results = $("#results"); if (results) results.style.display = "none";
   const q = $("#q"); if (q) q.value = "";
   editingId = null;
-  $("#dlg-title").textContent = f.name || f.fund_code;
+  $("#dlg-title").textContent = "加入自选 · " + (f.name || f.fund_code);
   $("#d-code").value = f.fund_code;
   $("#d-hold").value = $("#d-cost").value = $("#d-target").value = "";
   $("#d-target-rate").value = $("#d-profit").value = $("#d-loss").value = "";
-  setDlgKind("watch");   // 搜索新增默认「自选」,想记持有一键切换
+  $("#dlg-hint").textContent = "自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益，加入后在自选卡片点「转持有」补录金额。";
+  $("#dlg-submit").textContent = "加入自选";
+  _dlgShowAmount(false);   // 新增只加自选:隐藏金额区
   $("#dlg").showModal();
 }
 
@@ -137,11 +128,13 @@ function editHolding(it) {
   $("#d-target-rate").value = it.target_rate ?? "";
   $("#d-profit").value = it.stop_profit ?? "";
   $("#d-loss").value = it.stop_loss ?? "";
-  setDlgKind(isHold(it) ? "hold" : "watch");
+  $("#dlg-hint").textContent = "填入持仓金额即计入组合(持有);清空金额则回落为纯自选。";
+  $("#dlg-submit").textContent = "保存";
+  _dlgShowAmount(true);
   $("#dlg").showModal();
 }
 
-// 自选 → 持有:打开弹窗持有模式,预填代码待录金额
+// 自选 → 持有:打开弹窗展开金额区,预填代码待录金额
 function convertToHold(it) {
   editingId = it.id;
   $("#dlg-title").textContent = "转持有 · " + (it.name || it.fund_code);
@@ -152,7 +145,9 @@ function convertToHold(it) {
   $("#d-target-rate").value = it.target_rate ?? "";
   $("#d-profit").value = it.stop_profit ?? "";
   $("#d-loss").value = it.stop_loss ?? "";
-  setDlgKind("hold");
+  $("#dlg-hint").textContent = "记持有会按金额算今日估值、收盘真实盈亏与止盈止损，并计入组合总览。";
+  $("#dlg-submit").textContent = "加入持有";
+  _dlgShowAmount(true);
   $("#dlg").showModal();
 }
 
@@ -174,11 +169,12 @@ async function convertToWatch(it) {
 }
 
 async function submitHolding() {
-  const watchMode = dlgKind === "watch";
+  // 金额区隐藏 = 纯新增自选(加只能加自选);展开 = 编辑/转持有,照发金额,kind 由后端按金额推断
+  const watchMode = $("#d-hold-fields").hidden;
   const body = JSON.stringify({
     fund_code: $("#d-code").value,
-    kind: dlgKind,
-    // 自选模式不提交金额字段(留空 → 后端存 null),避免误算盈亏
+    // 纯自选不提交金额字段(留空 → 后端存 null,推断为 watch),避免误算盈亏
+    kind: watchMode ? "watch" : undefined,
     hold_amount: watchMode ? "" : $("#d-hold").value,
     cost_amount: watchMode ? "" : $("#d-cost").value,
     target_price: watchMode ? "" : $("#d-target").value,
@@ -274,21 +270,27 @@ function renderHoldCard(it) {
   </div>`;
 }
 
-// 自选卡片:精简 —— 名称 + 当日涨幅 + 迷你走势 + 转持有/移除,不含金额/盈亏
+// 自选卡片(全集):名称 + 当日涨幅 + 迷你走势。
+// 持有(有金额)的:打「持有」徽标,动作为「编辑」;纯自选的:动作为「转持有」。
 function renderWatchCard(it) {
   const z = it.gszzl;
+  const held = isHold(it);
+  const badge = held ? `<span class="w-badge">持有</span>` : "";
+  const action = held
+    ? `<button type="button" class="link-btn" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑</button>`
+    : `<button type="button" class="link-btn" onclick='convertToHold(${JSON.stringify(it).replace(/'/g, "&#39;")})'>转持有</button>`;
   return `<div class="watch-card">
     <div class="w-main" role="button" tabindex="0" onclick="location.hash='#/fund/${it.fund_code}'">
       <div class="w-name"><span class="fname">${it.name || it.fund_code}</span>
-           <span class="fcode">${it.fund_code}</span></div>
+           <span class="fcode">${it.fund_code}</span>${badge}</div>
       <div class="w-right">
         <span class="zdf ${cls(z)}">${z == null ? "—" : sign(z) + "%"}</span>
         <span class="spark w-spark" data-code="${it.fund_code}"></span>
       </div>
     </div>
     <div class="w-actions">
-      <button type="button" class="link-btn" onclick='convertToHold(${JSON.stringify(it).replace(/'/g, "&#39;")})'>转持有</button>
-      <button type="button" class="link-btn danger" onclick="del(${it.id}, true)">移除</button>
+      ${action}
+      <button type="button" class="link-btn danger" onclick="del(${it.id}, ${!held})">移除</button>
     </div>
   </div>`;
 }
@@ -308,24 +310,23 @@ async function load() {
     const data = await r.json();
     const items = data.items || [];
     const holds = items.filter(isHold);
-    const watches = items.filter(it => !isHold(it));
 
     renderSummary(data.summary);
     loadAllocation();
 
-    // 持有分区
+    // 持有分区(子集:有金额的)
     $("#hold-list").innerHTML = holds.length
       ? holds.map(renderHoldCard).join("")
-      : `<div class="empty">还没有持有。搜索基金选「💰 记持有」录入金额，这里会算今日盈亏与真实收益。</div>`;
+      : `<div class="empty">还没有持有。在自选卡片点「转持有」录入金额，这里会算今日盈亏与真实收益。</div>`;
 
-    // 自选分区
-    $("#watch-list").innerHTML = watches.length
-      ? watches.map(renderWatchCard).join("")
+    // 自选分区(全集:所有跟踪的基金,持有 ⊆ 自选)
+    $("#watch-list").innerHTML = items.length
+      ? items.map(renderWatchCard).join("")
       : `<div class="empty">还没有自选。搜索基金加入关注，随时看涨跌 👆</div>`;
 
-    // tab 计数 + 保持当前 tab
+    // tab 计数:自选=全集,持有=子集 + 保持当前 tab
     $("#tab-n-hold").textContent = holds.length ? `(${holds.length})` : "";
-    $("#tab-n-watch").textContent = watches.length ? `(${watches.length})` : "";
+    $("#tab-n-watch").textContent = items.length ? `(${items.length})` : "";
     switchPfTab(_pfTab);
 
     loadSparklines(items);

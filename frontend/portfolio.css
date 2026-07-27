@@ -49,4 +49,9 @@
 .watch-card .w-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .watch-card .w-spark { display: inline-flex; align-items: center; }
 .watch-card .w-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+.watch-card .w-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; vertical-align: middle;
+  color: var(--brand, #2b5bd7); background: rgba(43, 91, 215, 0.1);
+}
 
