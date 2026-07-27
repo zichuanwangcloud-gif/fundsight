@@ -97,6 +97,42 @@ class TestRefreshNav(unittest.TestCase):
         conn.close()
         self.assertIsNone(row)  # 未写入
 
+    def test_nav_prev_written_without_touching_dwjz(self):
+        # 官方净值经路回填 nav_prev(上一交易日),但不得覆盖 fundgz 的 dwjz。
+        code = "020608"
+        self._seed_fundgz_row(code)
+        fake = {"fund_code": code, "name": "测试基金", "nav": 1.2345,
+                "nav_date": "2026-07-08", "nav_prev": 1.2100}
+        with patch.object(akshare_nav, "fetch_nav", return_value=fake):
+            conn = self._conn()
+            akshare_nav.refresh_nav(conn, [code])
+            conn.close()
+        conn = self._conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (code,)).fetchone()
+        conn.close()
+        self.assertEqual(row["nav_prev"], 1.2100)
+        self.assertEqual(row["dwjz"], 1.2000)  # fundgz 昨收未被动
+
+    def test_nav_prev_coalesce_not_wiped_when_none(self):
+        # 后续一次 fetch 不带 nav_prev(如 akshare 兜底)时,不应清空已有 nav_prev。
+        code = "005827"
+        with patch.object(akshare_nav, "fetch_nav", return_value={
+                "fund_code": code, "name": "易方达蓝筹", "nav": 1.5,
+                "nav_date": "2026-07-08", "nav_prev": 1.48}):
+            conn = self._conn(); akshare_nav.refresh_nav(conn, [code]); conn.close()
+        # 第二次:不含 nav_prev 键
+        with patch.object(akshare_nav, "fetch_nav", return_value={
+                "fund_code": code, "name": "易方达蓝筹", "nav": 1.52,
+                "nav_date": "2026-07-09"}):
+            conn = self._conn(); akshare_nav.refresh_nav(conn, [code]); conn.close()
+        conn = self._conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (code,)).fetchone()
+        conn.close()
+        self.assertEqual(row["nav"], 1.52)
+        self.assertEqual(row["nav_prev"], 1.48)  # 保留,未被 None 清空
+
 
 if __name__ == "__main__":
     unittest.main()

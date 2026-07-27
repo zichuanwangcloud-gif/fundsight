@@ -106,6 +106,31 @@ class TestEnrichHolding(unittest.TestCase):
         self.assertNotIn("real_pl", item)
         self.assertNotIn("real_return_rate", item)
 
+    def test_real_pl_falls_back_to_nav_prev_when_no_dwjz(self):
+        # fundgz 接口不可用 → dwjz/gsz 缺失,但官方净值经路回填了 nav_prev。
+        # 真实盈亏应改用 nav_prev 作基准算出,不再因缺 fundgz 而空白。
+        # nav_prev=1.0 nav=1.03 hold=10000 → shares=10000, real_value=10300, real_pl=300
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(
+            dwjz=None, gsz=None, gszzl=None, gztime=None,
+            nav=1.03, nav_date="2026-07-08", nav_prev=1.0))
+
+        # 估算口径因缺 gsz/dwjz 缺失(fundgz 挂了)
+        self.assertNotIn("today_pl", item)
+        self.assertNotIn("est_value", item)
+        # 真实口径仍成算(基于 nav_prev)
+        self.assertEqual(item["real_value"], 10300.0)
+        self.assertEqual(item["real_pl"], 300.0)
+        self.assertEqual(item["nav_date"], "2026-07-08")
+
+    def test_dwjz_preferred_over_nav_prev(self):
+        # 两者都在时优先 dwjz(fundgz 昨收),保持既有口径不变。
+        # dwjz=1.0 nav=1.03 → real_pl=300;若误用 nav_prev=2.0 则会得负值。
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(
+            dwjz=1.0, nav=1.03, nav_date="2026-07-08", nav_prev=2.0))
+        self.assertEqual(item["real_pl"], 300.0)
+
     def test_stop_profit_uses_real_rate_when_nav_present(self):
         # 止盈改用真实收益率:估算收益率 23.53% 触发,但真实收益率仅 3%
         # nav=1.0 → real_value=cost 附近,real_return_rate≈2.94% < 止盈线5% → 不触发

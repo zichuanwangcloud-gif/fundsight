@@ -158,9 +158,12 @@ def import_holdings(rows, user_id):
     # 懒加载 scheduler,避免测试环境无需起后台线程时的强依赖。
     if codes:
         try:
-            from backend.scheduler import trigger_quote_for, trigger_history_for
+            from backend.scheduler import (
+                trigger_quote_for, trigger_nav_for, trigger_history_for,
+            )
             for c in set(codes):
                 trigger_quote_for(c)
+                trigger_nav_for(c)      # 官方净值(nav/nav_prev/名称):不依赖 fundgz,导入后真实盈亏即时可算
                 trigger_history_for(c)
         except Exception:  # noqa: BLE001
             pass

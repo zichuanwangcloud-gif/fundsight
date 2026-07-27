@@ -51,8 +51,10 @@ class OcrTestBase(unittest.TestCase):
         # 保证「全程不发真实网络」，也避免后台线程在临时库销毁后写只读库报噪声。
         self._orig_trig_q = scheduler.trigger_quote_for
         self._orig_trig_h = scheduler.trigger_history_for
+        self._orig_trig_n = scheduler.trigger_nav_for
         scheduler.trigger_quote_for = lambda *a, **k: None
         scheduler.trigger_history_for = lambda *a, **k: None
+        scheduler.trigger_nav_for = lambda *a, **k: None
         # 保存并清理识别相关环境变量，避免宿主机真实密钥干扰
         self._saved_env = {k: os.environ.pop(k, None) for k in (
             "FUNDSIGHT_VISION_API_KEY", "ANTHROPIC_API_KEY",
@@ -63,6 +65,7 @@ class OcrTestBase(unittest.TestCase):
     def tearDown(self):
         scheduler.trigger_quote_for = self._orig_trig_q
         scheduler.trigger_history_for = self._orig_trig_h
+        scheduler.trigger_nav_for = self._orig_trig_n
         db.DB_PATH = self._orig_path
         if os.path.exists(self._tmp_path):
             os.remove(self._tmp_path)

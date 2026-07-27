@@ -192,6 +192,35 @@ def _refresh_holdings_nav():
         conn.close()
 
 
+def _refresh_one_nav(code):
+    """回填单只基金的收盘官方净值(供新增/导入持仓补空窗)。返回成功数。"""
+    from backend.datasource.akshare_nav import refresh_nav
+    conn = get_conn()
+    try:
+        return refresh_nav(conn, [code])
+    finally:
+        conn.close()
+
+
+def trigger_nav_for(code, one_fn=None):
+    """后台回填单只基金官方净值(不阻塞调用方),供新增/导入持仓补空窗。返回线程。
+
+    与 trigger_quote_for 分工:后者拉 fundgz 盘中估值(dwjz/gsz),本函数拉官方净值
+    (nav/nav_date/nav_prev/name)。fundgz 接口不可用时,官方口径("收盘真实盈亏")仍能
+    即时成算,新导入持仓不再因缺 fundgz 而无名称、无真实盈亏。
+    """
+    one_fn = one_fn or _refresh_one_nav
+
+    def _run():
+        _, status, error = _record_run("nav_one", lambda: one_fn(code))
+        if status != "ok":
+            print(f"[scheduler] 新增持仓官方净值回填失败 {code}: {error}")
+
+    t = threading.Thread(target=_run, name=f"nav-one-{code}", daemon=True)
+    t.start()
+    return t
+
+
 def _safe_nav_refresh(nav_fn, retries=DEFAULT_RETRIES):
     n, status, error = _record_run("nav_refresh", nav_fn)
     if status == "ok":
