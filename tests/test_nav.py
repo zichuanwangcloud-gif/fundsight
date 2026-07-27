@@ -134,5 +134,14 @@ class TestRefreshNav(unittest.TestCase):
         self.assertEqual(row["nav_prev"], 1.48)  # 保留,未被 None 清空
 
 
+class TestCstDate(unittest.TestCase):
+    """净值日期按东八区还原,消除 utcfromtimestamp 的 off-by-one(早一天)。"""
+
+    def test_beijing_midnight_maps_to_same_day(self):
+        # 1784822400000ms = 2026-07-24 00:00 北京时间(=07-23 16:00 UTC)。
+        # 旧代码 utcfromtimestamp 会算成 07-23;修正后应为 07-24。
+        self.assertEqual(akshare_nav._cst_date(1784822400000), "2026-07-24")
+
+
 if __name__ == "__main__":
     unittest.main()

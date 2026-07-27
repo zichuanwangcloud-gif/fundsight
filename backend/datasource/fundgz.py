@@ -1,12 +1,22 @@
 # -*- coding: utf-8 -*-
-"""盘中估值抓取 —— 数据源: 天天基金 fundgz JSONP 接口。
+"""盘中估值抓取 —— 数据源: 天天基金移动端行情接口 FundMNFInfo。
 
-已于 2026-07-02 实测可用（编号 020608）。这是全项目唯一稳定可达的外部接口。
-低频调用 + 写入 fund_quote 缓存，业务层只读缓存。
+原 JSONP 接口 fundgz.1234567.com.cn/js/{code}.js 已于 2026-07 被上游下线
+(任意基金码均返回「页面未找到」),改用天天基金 App 在用的移动端接口:
+  https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?Fcodes={code}&...
+返回 JSON,单条含:
+  NAV      最新官方单位净值(收盘)         —— 映射 dwjz(估值基准=最近收盘价)
+  GSZ      盘中估算净值(非交易时段为 null) —— 映射 gsz
+  GSZZL    盘中估算涨跌幅 %                 —— 映射 gszzl
+  GZTIME   估值时间                        —— 映射 gztime
+  SHORTNAME 简称                           —— 映射 name
+
+低频调用 + 写入 fund_quote 缓存,业务层只读缓存。dwjz/gsz 口径与官方净值(nav)
+分离(见 akshare_nav):dwjz=最近收盘,供盘中估算盈亏;真实盈亏用 nav/nav_prev。
 """
 import json
-import re
 import ssl
+import urllib.parse
 import urllib.request
 from datetime import datetime, time as _time
 
@@ -14,26 +24,38 @@ _CTX = ssl.create_default_context()
 _CTX.check_hostname = False
 _CTX.verify_mode = ssl.CERT_NONE
 
-_UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+# 移动端接口需带 App 标识参数,否则返回「网络繁忙」。deviceid 任意常量即可。
+_BASE = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo"
+_PARAMS = {
+    "pageIndex": "1", "pageSize": "1", "plat": "Iphone", "appType": "ttjj",
+    "product": "EFund", "Version": "6.4.0", "deviceid": "fundsight",
+}
+_UA = {"User-Agent": "EMProjJijin/6.4.0 (iPhone; iOS 15.0)"}
 
 
 def fetch_estimate(code):
-    """拉单只基金的盘中估值。成功返回 dict，失败返回 None。"""
-    url = f"https://fundgz.1234567.com.cn/js/{code}.js"
+    """拉单只基金的盘中估值。成功返回 dict，失败返回 None。
+
+    返回字段与历史保持一致(fund_code/name/dwjz/gsz/gszzl/gztime),上层无需改动。
+    非交易时段 gsz/gszzl/gztime 为 None(接口不给估值),dwjz 仍是最新收盘价。
+    """
+    params = dict(_PARAMS, Fcodes=code)
+    url = f"{_BASE}?{urllib.parse.urlencode(params)}"
     try:
         req = urllib.request.Request(url, headers=_UA)
         raw = urllib.request.urlopen(req, timeout=10, context=_CTX).read().decode("utf-8")
-        m = re.search(r"jsonpgz\((.*)\)", raw)
-        if not m:
+        d = json.loads(raw)
+        datas = d.get("Datas") or []
+        if not datas:
             return None
-        d = json.loads(m.group(1))
+        r = datas[0]
         return {
-            "fund_code": d.get("fundcode"),
-            "name": d.get("name"),
-            "dwjz": _f(d.get("dwjz")),
-            "gsz": _f(d.get("gsz")),
-            "gszzl": _f(d.get("gszzl")),
-            "gztime": d.get("gztime"),
+            "fund_code": r.get("FCODE") or code,
+            "name": r.get("SHORTNAME"),
+            "dwjz": _f(r.get("NAV")),        # 最近官方收盘价 = 盘中估算基准
+            "gsz": _f(r.get("GSZ")),
+            "gszzl": _f(r.get("GSZZL")),
+            "gztime": r.get("GZTIME"),
         }
     except Exception as e:
         print(f"[fundgz] 拉取 {code} 失败: {type(e).__name__} {e}")
@@ -47,8 +69,8 @@ def _f(v):
         return None
 
 
-# A 股交易时段(本地时间)。非交易时段 fundgz 返回的是上一交易日定格值,
-# 采样无意义且浪费请求 —— scheduler.start_quote_refresh 据此门控跳过抓取。
+# A 股交易时段(本地时间)。非交易时段接口 gsz 为空(无估值),采样无意义,
+# scheduler.start_quote_refresh 据此门控跳过抓取。
 _MARKET_OPEN = (_time(9, 30), _time(15, 0))
 
 
