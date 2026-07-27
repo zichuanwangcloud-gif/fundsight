@@ -58,11 +58,14 @@ def _fetch_via_pingzhongdata(code):
     if nav is None or ts_ms is None:
         return None
     nav_date = datetime.datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
+    # 上一交易日净值(倒数第二点),供"收盘真实盈亏"作基准 —— 不依赖 fundgz 的 dwjz
+    nav_prev = _f(trend[-2].get("y")) if len(trend) >= 2 else None
     return {
         "fund_code": code,
         "name": name,
         "nav": _f(nav),
         "nav_date": nav_date,
+        "nav_prev": nav_prev,
     }
 
 
@@ -82,11 +85,13 @@ def _fetch_via_akshare(code):
         nav = _f(last_row.get("单位净值"))
         if nav is None:
             return None
+        nav_prev = _f(df.iloc[-2].get("单位净值")) if len(df) >= 2 else None
         return {
             "fund_code": code,
             "name": None,
             "nav": nav,
             "nav_date": nav_date,
+            "nav_prev": nav_prev,
         }
     except Exception as e:
         print(f"[akshare_nav] akshare 拉取 {code} 失败: {type(e).__name__} {e}")
@@ -113,18 +118,25 @@ def _f(v):
 
 
 def refresh_nav(conn, codes):
-    """批量刷新给定基金的收盘官方净值并写入 fund_quote。返回成功数。"""
+    """批量刷新给定基金的收盘官方净值并写入 fund_quote。返回成功数。
+
+    只写 nav/nav_date/nav_prev/name(官方口径),绝不触碰 dwjz/gsz(fundgz 盘中估值口径)
+    —— 两套字段分离,fundgz 不可用时官方口径仍可独立成算。nav_prev 缺失时用 COALESCE
+    保留旧值,不清空。
+    """
     ok = 0
     for code in codes:
         d = fetch_nav(code)
         if not d:
             continue
+        d.setdefault("nav_prev", None)  # 兜底:旧数据源/mock 可能不带该键
         conn.execute(
-            """INSERT INTO fund_quote(fund_code,name,nav,nav_date,updated_at)
-               VALUES (:fund_code,:name,:nav,:nav_date,datetime('now','localtime'))
+            """INSERT INTO fund_quote(fund_code,name,nav,nav_date,nav_prev,updated_at)
+               VALUES (:fund_code,:name,:nav,:nav_date,:nav_prev,datetime('now','localtime'))
                ON CONFLICT(fund_code) DO UPDATE SET
                  name=COALESCE(excluded.name, fund_quote.name),
                  nav=excluded.nav, nav_date=excluded.nav_date,
+                 nav_prev=COALESCE(excluded.nav_prev, fund_quote.nav_prev),
                  updated_at=excluded.updated_at""",
             d,
         )

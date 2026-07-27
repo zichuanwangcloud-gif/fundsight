@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.models.db import get_conn, init_db  # noqa: E402
 from backend.scheduler import (  # noqa: E402
     maybe_bootstrap_sync, start_periodic_sync, start_nav_refresh,
-    start_quote_refresh, trigger_quote_for,
+    start_quote_refresh, trigger_quote_for, trigger_nav_for,
     start_index_refresh,
     start_rank_refresh,
     start_history_refresh, trigger_history_for,
@@ -125,13 +125,16 @@ def enrich_holding(h, quote):
         shares = h["hold_amount"] / q["dwjz"]
         item["today_pl"] = round(shares * (q["gsz"] - q["dwjz"]), 2)
         item["est_value"] = round(shares * q["gsz"], 2)
-    # 收盘真实盈亏（官方净值 nav）：与估算并存，份额同口径便于对照
-    if nav is not None and h["hold_amount"] and q["dwjz"]:
-        real_shares = h["hold_amount"] / q["dwjz"]
+    # 收盘真实盈亏（官方净值 nav）：与估算并存，份额同口径便于对照。
+    # 基准优先用 fundgz 的 dwjz(昨日单位净值);fundgz 接口不可用时回落到 nav 经路
+    # 回填的 nav_prev(上一交易日官方净值),保证官方口径不依赖 fundgz 也能算。
+    real_base = q["dwjz"] if q.get("dwjz") else q.get("nav_prev")
+    if nav is not None and h["hold_amount"] and real_base:
+        real_shares = h["hold_amount"] / real_base
         item["nav"] = nav
         item["nav_date"] = q.get("nav_date")
         item["real_value"] = round(real_shares * nav, 2)
-        item["real_pl"] = round(real_shares * (nav - q["dwjz"]), 2)
+        item["real_pl"] = round(real_shares * (nav - real_base), 2)
     # 距目标: 目标净值 - 当前估值
     if h["target_price"] and q["gsz"]:
         item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
@@ -254,6 +257,7 @@ def add_holding(data, user_id):
     code = data.get("fund_code")
     if code:
         trigger_quote_for(code)
+        trigger_nav_for(code)     # 官方净值(nav/nav_prev/名称),不依赖 fundgz,真实盈亏即时可算
         trigger_history_for(code)  # 顺带拉历史序列,新持仓卡片几秒内有走势图
 
 

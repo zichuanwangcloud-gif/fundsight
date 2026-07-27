@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS fund_quote (
     gztime      TEXT,   -- 估值时间
     nav         REAL,   -- 最新官方单位净值（收盘回填，与 dwjz/估值分离）
     nav_date    TEXT,   -- 官方净值日期（收盘后回填）
+    nav_prev    REAL,   -- 上一交易日官方单位净值（收盘回填，供"收盘真实盈亏"作基准，不依赖 fundgz 的 dwjz）
     updated_at  TEXT
 );
 
@@ -288,6 +289,10 @@ def _ensure_columns(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_quote)")}
     if "nav" not in cols:
         conn.execute("ALTER TABLE fund_quote ADD COLUMN nav REAL")
+    # 上一交易日官方净值：让"收盘真实盈亏"有独立于 fundgz(dwjz)的基准，
+    # fundgz 盘中估值接口不可用时官方口径仍可计算。
+    if "nav_prev" not in cols:
+        conn.execute("ALTER TABLE fund_quote ADD COLUMN nav_prev REAL")
 
     # fund_nav_history 加列：equity_return（当日涨跌幅 %，涨跌柱用）——M8-B
     hist_cols = {r[1] for r in conn.execute("PRAGMA table_info(fund_nav_history)")}
