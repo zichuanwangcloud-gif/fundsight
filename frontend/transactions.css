@@ -22,6 +22,40 @@
 #tx-list .tx-del:hover { color: var(--up); }
 #tx-list .empty { padding: 16px 0; font-size: 12px; }
 
+/* 动作切换：加仓 / 减仓 / 转换 */
+.tx-actions { display: flex; gap: 8px; margin: 4px 0 6px; }
+.tx-actions .tx-act {
+  flex: 1; padding: 8px 0; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-2, #fff); color: var(--ink-2); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.tx-actions .tx-act:hover { border-color: var(--brand); }
+.tx-actions .tx-act.buy.active { background: var(--up-bg); color: #b8342a; border-color: #b8342a; }
+.tx-actions .tx-act.sell.active { background: var(--down-bg); color: #16794a; border-color: #16794a; }
+.tx-actions .tx-act.conv.active { background: var(--brand-soft); color: var(--brand-ink); border-color: var(--brand); }
+
+.tx-form .tx-hint { font-size: 12px; color: var(--muted); margin: 9px 0 2px; min-height: 16px; font-variant-numeric: tabular-nums; }
+
+/* 转换：转入基金搜索 */
+.tx-search { position: relative; }
+.tx-conv-results {
+  max-height: 180px; overflow-y: auto; border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  margin-top: 4px;
+}
+.tx-conv-results:empty { display: none; }
+.tx-conv-results > div { padding: 8px 11px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line-2); }
+.tx-conv-results > div:last-child { border-bottom: none; }
+.tx-conv-results > div:hover { background: var(--brand-soft); }
+.tx-conv-results .code { color: var(--faint); font-size: 12px; margin-left: 8px; }
+.tx-conv-results .tx-conv-none { color: var(--muted); cursor: default; }
+.tx-conv-picked {
+  background: var(--brand-soft); color: var(--brand-ink); border-radius: var(--r-sm);
+  padding: 8px 11px; font-size: 13px; margin-top: 8px;
+}
+.tx-conv-picked b { color: var(--brand); }
+.tx-conv-picked .code { color: var(--faint); font-size: 12px; margin-left: 6px; }
+.tx-conv-picked .tx-conv-clear { float: right; cursor: pointer; color: var(--faint); }
+.tx-conv-picked .tx-conv-clear:hover { color: var(--up); }
+
 .tx-form label { display: block; font-size: 13px; color: var(--muted); margin: 11px 0 5px; }
 .tx-form select, .tx-form input {
   width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 14px;

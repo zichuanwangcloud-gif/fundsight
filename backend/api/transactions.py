@@ -3,10 +3,18 @@
 
 接口:
   GET    /api/transactions?code=      某基金(或全部,不传 code)的流水列表,
-                                       按 user_id 过滤;若传 code 则附带
-                                       该基金由流水推导出的持仓(position)。
-  POST   /api/transactions            新增一笔流水(需登录)。
-  DELETE /api/transactions/{id}       删一笔(校验 user_id 归属)。
+                                       按 user_id 过滤;每条附语义 label
+                                       (建仓/加仓/减仓/清仓/转出/转入);若传 code
+                                       则附带该基金由流水推导出的持仓(position)。
+  POST   /api/transactions            新增一笔流水(buy/sell,需登录);支持金额优先
+                                       录入(给 amount+price 缺 shares 时反推份额)。
+  POST   /api/transactions/convert    记录一次基金转换(A→B),原子写入 convert_out +
+                                       convert_in 成对流水(需登录)。
+  DELETE /api/transactions/{id}       删一笔(校验 user_id 归属);属转换成对流水则
+                                       连带删另一腿。
+
+加仓/减仓 会计上就是 buy/sell,不新增 action 种别,语义标签由 _derive_labels 回放派生。
+基金转换取「市价重置」口径:转出按卖出确定已实现盈亏,转入以「转出市值−转换费」建立新成本。
 
 compute_position(code, user_id) 是本线路的核心纯函数:按 trade_date 顺序回放
 该基金全部流水,加权推导剩余份额与持仓成本 —— buy 累加 shares 与成本(amount);
@@ -18,7 +26,12 @@ sell 按当前加权平均成本冲减:冲减金额 = avg_cost * 实际卖出份
 """
 from backend.models.db import get_conn
 
+# 普通录入允许的方向；转换两腿(convert_out/convert_in)由 add_conversion 成对写入，
+# 不走 add_transaction 的 action 白名单。
 VALID_ACTIONS = ("buy", "sell")
+# 回放口径：加仓/建仓与转入都增仓；减仓/清仓与转出都减仓。
+_BUY_LIKE = ("buy", "convert_in")
+_SELL_LIKE = ("sell", "convert_out")
 
 
 def _num(v):
@@ -57,10 +70,10 @@ def compute_position(code, user_id, conn=None):
     for r in rows:
         s = r["shares"] or 0.0
         amt = r["amount"] or 0.0
-        if r["action"] == "buy":
+        if r["action"] in _BUY_LIKE:
             shares += s
             cost += amt
-        elif r["action"] == "sell":
+        elif r["action"] in _SELL_LIKE:
             if shares <= 0:
                 continue  # 脏数据(未持有先卖):忽略,不产生负份额
             avg_cost = cost / shares
@@ -149,6 +162,10 @@ def add_transaction(data, user_id):
     shares = _num(data.get("shares"))
     price = _num(data.get("price"))
     amount = _num(data.get("amount"))
+    # 金额优先录入：给了金额与净值但没份额时，用 份额 = 金额 / 净值 反推。
+    if shares is None and amount is not None and price:
+        shares = amount / price
+    # 反向：给了份额与净值但没金额时，金额 = 份额 × 净值。
     if amount is None and shares is not None and price is not None:
         amount = shares * price
     if shares is None or amount is None:
@@ -168,8 +185,93 @@ def add_transaction(data, user_id):
     return tid
 
 
+def add_conversion(data, user_id):
+    """记录一次基金转换(A→B 振替),原子写入成对流水,返回 {link_id, out_id, in_id}。
+
+    市价重置口径(天天基金准拠):
+      转出 A(convert_out) 按卖出处理 → 由 compute_position 确定已实现盈亏;
+        amount_out = out_shares × out_nav (转出时点市值)。
+      转入 B(convert_in)  按买入处理 → 建立新成本;
+        amount_in = amount_out − fee (转换费=赎回费+申购补差);
+        in_shares = amount_in / in_nav。
+    两腿共享同一 link_id(取 convert_out 的行 id)。数据非法返回 None。
+    """
+    from_code = (data.get("from_code") or "").strip()
+    to_code = (data.get("to_code") or "").strip()
+    out_shares = _num(data.get("out_shares"))
+    out_nav = _num(data.get("out_nav"))
+    in_nav = _num(data.get("in_nav"))
+    fee = _num(data.get("fee")) or 0.0
+    if not from_code or not to_code or from_code == to_code:
+        return None
+    if not out_shares or out_shares <= 0 or not out_nav or out_nav <= 0 or not in_nav or in_nav <= 0:
+        return None
+
+    amount_out = out_shares * out_nav
+    amount_in = amount_out - fee
+    if amount_in <= 0:
+        return None  # 转换费吃掉全部本金,非法
+    in_shares = amount_in / in_nav
+    trade_date = (data.get("trade_date") or "").strip()
+
+    conn = get_conn()
+    try:
+        out_cur = conn.execute(
+            "INSERT INTO fund_transaction(user_id,fund_code,action,shares,price,amount,"
+            "trade_date,created_at) VALUES (?,?,?,?,?,?,?,datetime('now','localtime'))",
+            (user_id, from_code, "convert_out", out_shares, out_nav, amount_out, trade_date),
+        )
+        link_id = out_cur.lastrowid
+        in_cur = conn.execute(
+            "INSERT INTO fund_transaction(user_id,fund_code,action,shares,price,amount,"
+            "trade_date,link_id,created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+            (user_id, to_code, "convert_in", in_shares, in_nav, amount_in, trade_date, link_id),
+        )
+        in_id = in_cur.lastrowid
+        # 回填转出腿的 link_id(自引用),使两腿同值
+        conn.execute("UPDATE fund_transaction SET link_id=? WHERE id=?", (link_id, link_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"link_id": link_id, "out_id": link_id, "in_id": in_id}
+
+
+def _derive_labels(rows_asc):
+    """对某基金某用户流水(按 trade_date,id 升序)回放,给每笔派生语义标签。
+
+    返回 {id: label}。买入前份额=0→建仓、>0→加仓;卖出后剩余>0→减仓、=0→清仓;
+    转换两腿固定 转出/转入(其对手基金由前端按 link_id 关联标注)。
+    """
+    labels = {}
+    shares = 0.0
+    for r in rows_asc:
+        s = r["shares"] or 0.0
+        act = r["action"]
+        if act == "convert_out":
+            labels[r["id"]] = "转出"
+            shares = max(0.0, shares - min(s, shares))
+        elif act == "convert_in":
+            labels[r["id"]] = "转入"
+            shares += s
+        elif act in _BUY_LIKE:
+            labels[r["id"]] = "加仓" if shares > 1e-9 else "建仓"
+            shares += s
+        elif act in _SELL_LIKE:
+            if shares <= 0:
+                labels[r["id"]] = "卖出"  # 脏数据(未持有先卖)
+                continue
+            sold = min(s, shares)
+            shares -= sold
+            labels[r["id"]] = "减仓" if shares > 1e-9 else "清仓"
+    return labels
+
+
 def list_transactions(user_id, code=None):
-    """某用户的流水列表,可选按 fund_code 过滤,按交易日期倒序。"""
+    """某用户的流水列表,可选按 fund_code 过滤,按交易日期倒序。
+
+    每条附 label(建仓/加仓/减仓/清仓/转出/转入):按 fund_code 分组、trade_date 升序
+    回放派生(见 _derive_labels)。转换腿另附 link_id 供前端关联对手基金。
+    """
     conn = get_conn()
     if code:
         rows = conn.execute(
@@ -183,13 +285,43 @@ def list_transactions(user_id, code=None):
             (user_id,),
         ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    # 按 fund_code 分组、升序回放派生 label(rows 为倒序,反转即升序)
+    by_code = {}
+    for r in reversed(rows):
+        by_code.setdefault(r["fund_code"], []).append(r)
+    labels = {}
+    for grp in by_code.values():
+        labels.update(_derive_labels(grp))
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["label"] = labels.get(r["id"])
+        out.append(d)
+    return out
 
 
 def delete_transaction(tid, user_id):
-    """删一笔流水,校验 user_id 归属(越权删除不生效)。"""
+    """删一笔流水,校验 user_id 归属(越权删除不生效)。
+
+    若该笔属于转换成对流水(link_id 非空),连带删除同 link_id 的另一腿,
+    避免只剩半截转换污染账本。
+    """
     conn = get_conn()
-    conn.execute("DELETE FROM fund_transaction WHERE id=? AND user_id=?", (tid, user_id))
+    row = conn.execute(
+        "SELECT link_id FROM fund_transaction WHERE id=? AND user_id=?", (tid, user_id)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return  # 不存在或越权:静默不生效
+    if row["link_id"]:
+        conn.execute(
+            "DELETE FROM fund_transaction WHERE link_id=? AND user_id=?",
+            (row["link_id"], user_id),
+        )
+    else:
+        conn.execute("DELETE FROM fund_transaction WHERE id=? AND user_id=?", (tid, user_id))
     conn.commit()
     conn.close()
 
@@ -221,8 +353,18 @@ def _h_delete(ctx):
     return {"ok": True}
 
 
+def _h_convert(ctx):
+    if ctx.user_id is None:
+        return (401, {"error": "unauthorized"})
+    result = add_conversion(ctx.body, ctx.user_id)
+    if result is None:
+        return (400, {"error": "invalid conversion"})
+    return {"ok": True, **result}
+
+
 ROUTES = [
     ("GET", "/api/transactions", _h_list),
     ("POST", "/api/transactions", _h_add),
+    ("POST", "/api/transactions/convert", _h_convert),
     ("DELETE", "/api/transactions/{id}", _h_delete),
 ]

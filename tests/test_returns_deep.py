@@ -98,6 +98,23 @@ class TestCostCurve(_T):
         # 按日期升序
         self.assertLessEqual(pts[0]["date"], pts[1]["date"])
 
+    def test_convert_in_counts_as_cost_batch(self):
+        # 转入建仓(convert_in)应计入成本曲线:B 由转入 100 份成本 200 建仓
+        c = sqlite3.connect(self.path)
+        d = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
+        c.execute(
+            "INSERT INTO fund_transaction(user_id,fund_code,action,shares,price,amount,trade_date)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (1, "B", "convert_in", 100, 2.0, 200.0, d),
+        )
+        c.commit()
+        c.close()
+        r = returns.get_cost_curve(self._ctx("B"))
+        pts = r["points"]
+        self.assertEqual(len(pts), 1)
+        self.assertAlmostEqual(pts[0]["cost_basis"], 200.0)
+        self.assertAlmostEqual(pts[0]["shares"], 100.0)
+
 
 class TestAttribution(_T):
     def test_missing_code(self):
