@@ -1,0 +1,97 @@
+/* 首页概览「今天」样式 —— 消费 theme token,移动优先。 */
+
+.home-hero { margin: 12px 0; }
+.home-loading, .home-err, .home-muted {
+  color: var(--muted); font-size: 14px; padding: 14px 4px;
+}
+.home-err { color: var(--up); }
+
+/* 今日盈亏大数卡(深底,用 s-up/s-down 高对比) */
+.hero-card {
+  background: var(--brand-grad); color: #fff;
+  border-radius: var(--r-card); padding: 18px 18px 14px;
+  box-shadow: var(--sh-card);
+}
+.hero-label { font-size: 13px; opacity: .85; }
+.hero-num {
+  font-family: var(--num); font-size: 34px; font-weight: 700;
+  line-height: 1.1; margin-top: 2px; letter-spacing: -.5px;
+}
+.hero-num .hero-pct { font-size: 18px; font-weight: 600; opacity: .95; }
+.hero-meta {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 10px 8px; margin-top: 14px;
+  border-top: 1px solid rgba(255,255,255,.16); padding-top: 12px;
+}
+.hero-meta > div { font-size: 12px; opacity: .85; display: flex; flex-direction: column; gap: 3px; }
+.hero-meta b { font-family: var(--num); font-size: 15px; font-weight: 600; opacity: 1; color: #fff; }
+.hero-meta b.s-up, .hero-meta b.s-down, .hero-meta b.s-flat { opacity: 1; }
+
+/* 空态 */
+.hero-empty {
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--sh-card);
+  padding: 32px 20px; text-align: center;
+}
+.hero-empty-title { font-size: 17px; font-weight: 700; color: var(--ink); }
+.hero-empty-sub { font-size: 13px; color: var(--muted); margin: 10px 0 18px; line-height: 1.6; }
+
+/* 今日涨跌 mini 条 */
+.hero-spark { margin-top: 14px; }
+.block-title {
+  font-size: 14px; font-weight: 700; color: var(--ink);
+  margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between;
+}
+.spark-row {
+  display: grid; grid-template-columns: 1fr 120px 62px; align-items: center;
+  gap: 8px; padding: 7px 2px; cursor: pointer; border-radius: var(--r-sm);
+}
+.spark-row:hover { background: var(--card-2); }
+.spark-name { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spark-bar { position: relative; height: 8px; background: var(--line-2); border-radius: var(--r-pill); overflow: hidden; }
+.spark-bar i { position: absolute; top: 0; left: 50%; height: 100%; }
+.spark-bar i.up { background: var(--up); left: 50%; }
+.spark-bar i.down { background: var(--down); transform: translateX(-100%); }
+.spark-bar i.flat { background: var(--flat); width: 4px !important; }
+.spark-val { font-family: var(--num); font-size: 13px; text-align: right; }
+
+/* 通用块卡片 */
+.block {
+  background: var(--card); border-radius: var(--r-card); box-shadow: var(--sh-card);
+  padding: 16px; margin: 12px 0;
+}
+
+/* 离目标进度 */
+.goal-row { padding: 10px 2px; border-bottom: 1px solid var(--line-2); cursor: pointer; }
+.goal-row:last-child { border-bottom: 0; }
+.goal-head { display: flex; justify-content: space-between; align-items: baseline; }
+.goal-name { font-size: 14px; color: var(--ink); font-weight: 600; }
+.goal-ret { font-family: var(--num); font-size: 14px; font-weight: 600; }
+.goal-bar { display: block; height: 9px; background: var(--line-2); border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 6px; }
+.goal-bar i { display: block; height: 100%; background: var(--brand); border-radius: var(--r-pill); }
+.goal-bar.recover i { background: var(--warn); }
+.goal-foot { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.goal-dist.hit { color: var(--warn); font-weight: 600; }
+
+/* 今天要看 */
+.alert-row {
+  display: flex; align-items: center; gap: 8px; padding: 9px 10px; margin: 6px 0;
+  border-radius: var(--r-sm); background: var(--card-2); cursor: pointer;
+  border-left: 3px solid var(--flat);
+}
+.alert-row.sev-good { border-left-color: var(--up); background: var(--up-soft); }
+.alert-row.sev-bad { border-left-color: var(--down); background: var(--down-soft); }
+.alert-row.sev-info { border-left-color: var(--brand); background: var(--brand-soft); }
+.alert-ico { font-size: 15px; }
+.alert-name { font-size: 13px; font-weight: 600; color: var(--ink); flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-msg { font-size: 12px; color: var(--ink-2); }
+.alert-more { margin-top: 8px; font-size: 12px; color: var(--brand); cursor: pointer; }
+
+/* AI 早晚报 */
+.home-ai .ai-gen-btn {
+  font-size: 12px; padding: 3px 12px; border-radius: var(--r-pill);
+  border: 1px solid var(--brand); color: var(--brand); background: var(--brand-soft); cursor: pointer;
+}
+.home-ai .ai-gen-btn:disabled { opacity: .5; cursor: default; }
+.ai-brief { font-size: 14px; color: var(--ink); line-height: 1.6; }
+.ai-brief-text { color: var(--ink); }
+.ai-brief-foot { margin-top: 8px; font-size: 11px; color: var(--faint); line-height: 1.5; }

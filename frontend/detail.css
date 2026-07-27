@@ -76,3 +76,19 @@
 .d-hold-track i { display: block; height: 100%; background: linear-gradient(90deg,#f0a020,var(--up)); border-radius: 999px; }
 .d-hold-w { font-size: 13px; font-weight: 700; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 @media (max-width: 560px) { .d-hold-row { grid-template-columns: 20px 1fr 60px 48px; } }
+
+/* 卖出复盘 / 已实现盈亏(点状,不画曲线) */
+.rz-sum { font-size: 13px; color: var(--ink-2); margin: 4px 0 10px; }
+.rz-sum b { font-family: var(--num); font-size: 16px; margin: 0 2px; }
+.rz-head, .rz-row {
+  display: grid; grid-template-columns: 1fr 90px 72px 1.1fr; align-items: center;
+  gap: 6px; font-variant-numeric: tabular-nums;
+}
+.rz-head { font-size: 11px; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--line-2); }
+.rz-row { font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+.rz-row:last-of-type { border-bottom: 0; }
+.rz-date { color: var(--ink-2); }
+.rz-pnl, .rz-pct { font-family: var(--num); font-weight: 600; text-align: right; }
+.rz-days { color: var(--muted); font-size: 12px; text-align: right; }
+.rz-ann { display: block; color: var(--faint); font-size: 11px; }
+.rz-foot { font-size: 11px; color: var(--faint); margin-top: 8px; }

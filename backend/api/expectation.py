@@ -72,12 +72,26 @@ def _r_proj_annualized(conn, code):
 
 
 def _compute_for_holding(conn, h, q):
-    """单条 holding + quote → 预期派生 dict。"""
+    """单条 holding + quote → 预期派生 dict。
+
+    成本/当前市值走 resolve_position(流水优先 + 手填兼容):该基金有流水时,
+    成本与市值以流水口径为权威,预期收益率对得上真账本;无流水回退 holding 手填。
+    """
+    from backend.api.transactions import resolve_position, position_market_value
     code = h["fund_code"]
     target_rate = h["target_rate"]
-    cost = h["cost_amount"]
 
-    # 目标年化
+    uid = h["user_id"] if "user_id" in h.keys() else None
+    pos = resolve_position(conn, code, uid) if uid is not None else {"source": "holding"}
+    if pos["source"] == "transaction":
+        cost = pos["cost_amount"]
+        cur_value = position_market_value(
+            pos, q["dwjz"] if q else None, q["gsz"] if q else None,
+            q["nav"] if q else None,
+        )
+    else:
+        cost = h["cost_amount"]
+        cur_value = _current_value(h, q)
     target_annual = None
     if target_rate is not None:
         cd = _parse_created(h["created_at"])
@@ -88,8 +102,7 @@ def _compute_for_holding(conn, h, q):
                     ((1 + target_rate / 100) ** (365.0 / days) - 1) * 100, 2
                 )
 
-    # 当前市值 / 收益率 / 回本所需涨幅
-    cur_value = _current_value(h, q)
+    # 当前收益率 / 回本所需涨幅(cur_value/cost 已按账本来源在上方取权威口径)
     current_return_pct = None
     recovery_pct = None
     if cur_value and cost:
@@ -144,7 +157,7 @@ def get_expectations(ctx):
     conn = get_conn()
     try:
         holdings = conn.execute(
-            "SELECT fund_code, target_rate, cost_amount, hold_amount, created_at, "
+            "SELECT fund_code, user_id, target_rate, cost_amount, hold_amount, created_at, "
             "trailing_stop_pct, peak_nav "
             "FROM holding WHERE user_id=?", (ctx.user_id,)
         ).fetchall()

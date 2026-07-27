@@ -339,9 +339,113 @@ def get_risk(ctx):
     return {"fund_code": code, **risk}
 
 
+def _parse_trade_date(s):
+    """交易日 'YYYY-MM-DD' → ordinal 天数;非法返回 None。"""
+    from datetime import datetime
+    if not s:
+        return None
+    try:
+        return datetime.strptime(str(s).strip()[:10], "%Y-%m-%d").date().toordinal()
+    except ValueError:
+        return None
+
+
+def _sell_review(conn, code, user_id):
+    """卖出复盘(用户维度)—— 回放流水,对每笔卖出算已实现盈亏 / 收益率 / 持有天数 / 年化。
+
+    口径与 transactions.compute_position 一致:卖出按当前加权平均成本冲减;超卖按实际
+    持有量、卖出金额等比例折算。持有天数用「当前持仓份额的加权平均建仓日」到卖出日,
+    年化 = (1+已实现收益率)^(365/持有天数) − 1(点状复盘,不画曲线;仅供参考)。
+    """
+    rows = conn.execute(
+        "SELECT action, shares, amount, trade_date FROM fund_transaction "
+        "WHERE fund_code=? AND user_id=? ORDER BY trade_date, id",
+        (code, user_id),
+    ).fetchall()
+
+    shares = 0.0
+    cost = 0.0
+    w_ord = 0.0  # Σ(shares × 建仓日ordinal),用于加权平均建仓日
+    total_realized = 0.0
+    sells = []
+    for r in rows:
+        s = r["shares"] or 0.0
+        amt = r["amount"] or 0.0
+        d = _parse_trade_date(r["trade_date"])
+        if r["action"] == "buy":
+            shares += s
+            cost += amt
+            if d is not None:
+                w_ord += s * d
+        elif r["action"] == "sell":
+            if shares <= 0:
+                continue
+            avg_cost = cost / shares
+            sell_shares = min(s, shares)
+            sell_amount = amt * (sell_shares / s) if s > 0 else 0.0
+            basis = avg_cost * sell_shares
+            realized = sell_amount - basis
+            total_realized += realized
+            realized_pct = round(realized / basis * 100, 2) if basis else None
+            avg_ord = w_ord / shares if shares else None
+            hold_days = int(round(d - avg_ord)) if (avg_ord and d is not None) else None
+            annualized = None
+            if hold_days and hold_days > 0 and realized_pct is not None:
+                try:
+                    annualized = round(
+                        ((1 + realized_pct / 100) ** (365.0 / hold_days) - 1) * 100, 2)
+                except (ValueError, OverflowError):
+                    annualized = None
+            sells.append({
+                "date": r["trade_date"],
+                "shares": round(sell_shares, 4),
+                "realized_pnl": round(realized, 2),
+                "realized_pct": realized_pct,
+                "hold_days": hold_days,
+                "annualized_pct": annualized,
+            })
+            # 冲减:份额、成本、加权建仓日之和按比例同步减少(平均建仓日不变)
+            frac = sell_shares / shares
+            w_ord -= w_ord * frac
+            cost -= basis
+            shares -= sell_shares
+            if shares <= 1e-9:
+                shares = 0.0
+                cost = 0.0
+                w_ord = 0.0
+    return {
+        "realized_pnl": round(total_realized, 2),
+        "sells": sells,
+        "has_sells": bool(sells),
+    }
+
+
+def get_realized(ctx):
+    """卖出复盘 + 累计已实现盈亏(用户维度,按登录隔离)。
+
+    GET /api/fund/{code}/realized
+      → {"fund_code", "realized_pnl", "has_sells", "sells":[{date,shares,realized_pnl,
+         realized_pct,hold_days,annualized_pct}]}
+    无卖出记录时 sells 为空、realized_pnl=0(前端不报错)。需登录。
+    """
+    if ctx.user_id is None:
+        return (401, {"error": "需登录"})
+    code = (ctx.params.get("code") or "").strip()
+    if not code:
+        return (400, {"error": "缺少基金代码"})
+    conn = get_conn()
+    try:
+        out = _sell_review(conn, code, ctx.user_id)
+    finally:
+        conn.close()
+    out["fund_code"] = code
+    return out
+
+
 ROUTES = [
     ("GET", "/api/fund/{code}/returns", get_returns),
     ("GET", "/api/fund/{code}/cost-curve", get_cost_curve),
     ("GET", "/api/fund/{code}/returns-attribution", get_returns_attribution),
     ("GET", "/api/fund/{code}/risk", get_risk),
+    ("GET", "/api/fund/{code}/realized", get_realized),
 ]

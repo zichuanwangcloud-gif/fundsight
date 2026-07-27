@@ -140,6 +140,7 @@ function renderSummary(s) {
       ${tot != null ? `<div>累计盈亏<b class="${scls(tot)}">${sign(tot)}</b></div>` : ""}
       ${rate != null ? `<div>总收益率<b class="${scls(rate)}">${sign(rate)}%</b></div>` : ""}
       ${s.total_real_pl != null ? `<div>收盘真实盈亏<b class="${scls(s.total_real_pl)}">${sign(s.total_real_pl)}</b></div>` : ""}
+      ${s.total_realized_pnl != null ? `<div>已落袋<b class="${scls(s.total_realized_pnl)}">${sign(s.total_realized_pnl)}</b></div>` : ""}
     </div>
     ${tot != null && s.matched_count < s.count ? `<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>` : ""}`;
   box.style.display = "block";

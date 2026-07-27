@@ -28,21 +28,32 @@ def _num(v):
         return None
 
 
-def compute_position(code, user_id):
+def compute_position(code, user_id, conn=None):
     """由 fund_transaction 全部流水(按 trade_date 排序)加权推导持仓。
 
-    返回 {"shares": float, "cost_amount": float, "avg_cost": float}。
+    返回 {"shares", "cost_amount", "avg_cost", "realized_pnl", "has_tx"}。
+      realized_pnl —— 累计已实现盈亏(落袋):卖出时 卖出金额 − 均摊成本×卖出份额,
+                      正为落袋盈利、负为割肉亏损。超卖按实际卖出份额等比例折算卖出金额。
+      has_tx       —— 是否存在任一流水(用于 resolve_position 判断账本来源)。
+
+    conn 可选:传入则复用(不关闭),不传则自开自关。
     """
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT action, shares, amount FROM fund_transaction "
-        "WHERE fund_code=? AND user_id=? ORDER BY trade_date, id",
-        (code, user_id),
-    ).fetchall()
-    conn.close()
+    own = conn is None
+    if own:
+        conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT action, shares, amount FROM fund_transaction "
+            "WHERE fund_code=? AND user_id=? ORDER BY trade_date, id",
+            (code, user_id),
+        ).fetchall()
+    finally:
+        if own:
+            conn.close()
 
     shares = 0.0
     cost = 0.0
+    realized = 0.0
     for r in rows:
         s = r["shares"] or 0.0
         amt = r["amount"] or 0.0
@@ -54,6 +65,9 @@ def compute_position(code, user_id):
                 continue  # 脏数据(未持有先卖):忽略,不产生负份额
             avg_cost = cost / shares
             sell_shares = min(s, shares)  # 超卖按实际持有量清仓,不做空
+            # 超卖时按实际卖出份额等比例折算本笔卖出金额(避免把未成交的钱算进落袋)
+            sell_amount = amt * (sell_shares / s) if s > 0 else 0.0
+            realized += sell_amount - avg_cost * sell_shares
             cost -= avg_cost * sell_shares
             shares -= sell_shares
             if shares <= 1e-9:
@@ -65,7 +79,64 @@ def compute_position(code, user_id):
         "shares": round(shares, 6),
         "cost_amount": round(cost, 6),
         "avg_cost": round(avg_cost, 6),
+        "realized_pnl": round(realized, 6),
+        "has_tx": bool(rows),
     }
+
+
+def resolve_position(conn, code, user_id):
+    """账本统一入口(流水优先 + 手填兼容):某用户某基金的权威持仓。
+
+    有流水记录 → 用 compute_position 推导(份额/成本/已实现盈亏均可对账);
+    无流水     → 回退 holding 手填(hold_amount/cost_amount),realized_pnl=0。
+
+    返回统一结构:
+      source        "transaction" | "holding" | "empty"
+      shares        流水口径的份额;holding 口径为 None(市值按 hold_amount/dwjz 反推)
+      cost_amount   持仓成本(可 None)
+      realized_pnl  累计已实现盈亏(holding 口径恒 0.0)
+      hold_amount   holding 手填金额(流水口径为 None)
+    """
+    tx = compute_position(code, user_id, conn=conn)
+    if tx["has_tx"]:
+        return {
+            "source": "transaction",
+            "shares": tx["shares"],
+            "cost_amount": tx["cost_amount"],
+            "realized_pnl": tx["realized_pnl"],
+            "hold_amount": None,
+        }
+    h = conn.execute(
+        "SELECT hold_amount, cost_amount FROM holding WHERE fund_code=? AND user_id=?",
+        (code, user_id),
+    ).fetchone()
+    if h is None:
+        return {"source": "empty", "shares": None, "cost_amount": None,
+                "realized_pnl": 0.0, "hold_amount": None}
+    return {
+        "source": "holding",
+        "shares": None,
+        "cost_amount": h["cost_amount"],
+        "realized_pnl": 0.0,
+        "hold_amount": h["hold_amount"],
+    }
+
+
+def position_market_value(pos, dwjz, gsz, nav):
+    """统一市值计算,兼容两种账本口径。市值优先 nav(收盘)回落 gsz(盘中)。
+
+    - 流水口径:市值 = shares × 现价。
+    - 手填口径:份额 = hold_amount / dwjz,市值 = 份额 × 现价(与旧 _market_value 一致)。
+    缺关键数据返回 None。
+    """
+    price = nav if nav is not None else (gsz if gsz else None)
+    if price is None:
+        return None
+    if pos.get("shares") is not None:
+        return pos["shares"] * price
+    if pos.get("hold_amount") and dwjz:
+        return (pos["hold_amount"] / dwjz) * price
+    return None
 
 
 def add_transaction(data, user_id):

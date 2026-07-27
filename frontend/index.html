@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="/ocr.css">
 <link rel="stylesheet" href="/admin.css">
 <link rel="stylesheet" href="/ai.css">
+<link rel="stylesheet" href="/home.css">
 </head>
 <body>
   <!-- 登录 / 注册门控(未登录时覆盖全屏) -->
@@ -55,6 +56,7 @@
 
   <div class="app-shell">
     <nav class="tabs">
+      <button type="button" class="tab" data-key="home" onclick="location.hash='#/home'">今天</button>
       <button type="button" class="tab" data-key="market" onclick="location.hash='#/market'">市场</button>
       <button type="button" class="tab" data-key="rank" onclick="location.hash='#/rank'">排行</button>
       <button type="button" class="tab" data-key="portfolio" onclick="location.hash='#/portfolio'">持仓</button>
@@ -68,6 +70,7 @@
   <script src="/app.js"></script>
   <script src="/chart.js"></script>
   <script src="/indices.js"></script>
+  <script src="/home.js"></script>
   <script src="/portfolio.js"></script>
   <script src="/market.js"></script>
   <script src="/rank.js"></script>

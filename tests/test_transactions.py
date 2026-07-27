@@ -61,7 +61,12 @@ class TestComputePosition(TransactionTestBase):
 
     def test_empty_transactions_returns_zero(self):
         pos = tx.compute_position("020608", 1)
-        self.assertEqual(pos, {"shares": 0.0, "cost_amount": 0.0, "avg_cost": 0.0})
+        # 契约随「已实现盈亏」升级新增 realized_pnl / has_tx 两键(向后兼容,只增不改)
+        self.assertEqual(pos["shares"], 0.0)
+        self.assertEqual(pos["cost_amount"], 0.0)
+        self.assertEqual(pos["avg_cost"], 0.0)
+        self.assertEqual(pos["realized_pnl"], 0.0)
+        self.assertFalse(pos["has_tx"])
 
     def test_single_buy(self):
         self._buy(1, "020608", 100, 1.0, "2026-01-01")  # amount 推导 = 100
