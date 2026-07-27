@@ -35,6 +35,7 @@ function renderDetail(view, code) {
     <div id="d-holdings" class="d-profile" hidden></div>
     <div id="d-compare" class="d-chart-card" hidden></div>
     <div id="d-intraday" class="d-chart-card"><div class="d-loading">实时涨幅加载中…</div></div>
+    <div id="d-intraday-pl" class="d-chart-card" hidden></div>
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div id="d-risk" class="d-profile"><div class="d-loading">风险指标加载中…</div></div>
     <div id="d-cost-curve" class="d-chart-card" hidden><div class="d-loading">成本曲线加载中…</div></div>
@@ -455,6 +456,7 @@ function renderIntradayChart(d) {
     : '<span class="d-intraday-tag closed">已收盘</span>';
   box.innerHTML = `<div class="d-name">今日实时涨幅 ${tag}</div><div id="d-intraday-chart"></div>`;
   renderIntradaySvg($("#d-intraday-chart"), ticks, d);
+  renderIntradayPlChart(d);
   // 盘中开轮询;收盘保持定格,不再轮询(图一直展示到次日开盘)
   if (open && !_intradayTimer) {
     _intradayTimer = setInterval(loadIntraday, 30000);
@@ -462,6 +464,52 @@ function renderIntradayChart(d) {
     clearInterval(_intradayTimer);
     _intradayTimer = null;
   }
+}
+
+// 今日预估盈亏(元)折线 —— 仅登录用户持有该基金且录了金额时展示(pl_ticks 非空)。
+// 数据与持仓卡片 today_pl 同口径(份额=金额/dwjz),复用 intraday 轮询一并刷新。
+function renderIntradayPlChart(d) {
+  const box = $("#d-intraday-pl");
+  if (!box) return;
+  const plTicks = (d && d.pl_ticks) || [];
+  if (!plTicks.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  const open = !!(d && d.market_open);
+  const tag = open
+    ? '<span class="d-intraday-tag live">盘中实时</span>'
+    : '<span class="d-intraday-tag closed">已收盘</span>';
+  box.innerHTML = `<div class="d-name">今日预估盈亏(元) ${tag}</div><div id="d-intraday-pl-chart"></div>`;
+  renderIntradayPlSvg($("#d-intraday-pl-chart"), plTicks, d);
+}
+
+function renderIntradayPlSvg(container, plTicks, d) {
+  if (!container) return;
+  const pts = (plTicks || []).filter(t => t.pl != null);
+  if (pts.length < 1) {
+    const hint = (d && d.market_open) ? "今日暂无预估点,开盘后自动更新" : "今日暂无盘中预估数据";
+    container.innerHTML = `<div class="d-empty">${hint}</div>`;
+    return;
+  }
+  const last = pts[pts.length - 1].pl;
+  const hi = Math.max(...pts.map(t => t.pl));
+  const lo = Math.min(...pts.map(t => t.pl));
+  const fmtYuan = v => (v >= 0 ? "+¥" : "-¥") + Math.abs(+v).toFixed(2);
+  const points = pts.map(t => ({
+    label: t.quote_time || "",
+    value: t.pl,
+    tip: `<b class="${cls(t.pl)}">${fmtYuan(t.pl)}</b>`,
+  }));
+  renderLineChart(container, points, {
+    height: 200,
+    zeroLine: true,
+    minSpan: 1,
+    color: last >= 0 ? "#e5432f" : "#0f9d58",
+    fmtValue: v => (v >= 0 ? "+" : "-") + "¥" + Math.abs(+v).toFixed(0),
+    fmtLabel: t => String(t || "").slice(0, 5),
+    footLeft: `<span class="lbl ${cls(last)}">最新预估 ${fmtYuan(last)}</span>`,
+    footRight: `<span class="legend">最高 ${fmtYuan(hi)} · 最低 ${fmtYuan(lo)} · 零轴虚线</span>`,
+    emptyHint: "预估数据不足",
+  });
 }
 
 // 今日盘中实时涨幅 —— 可交互折线(chart.js),零轴居中、红涨绿跌,悬停看每个时点估值。

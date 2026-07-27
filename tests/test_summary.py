@@ -8,6 +8,7 @@
 不发起网络请求、不读数据库，纯数值计算。
 """
 import unittest
+from datetime import datetime
 
 from backend.app import enrich_holding, summarize
 
@@ -155,6 +156,26 @@ class TestEnrichHolding(unittest.TestCase):
         # real_value=9000, real_return_rate=5.88 ≥ 5 → 触发
         self.assertTrue(item["hit_stop_profit"])
 
+    def test_real_is_today_true_when_nav_date_is_today(self):
+        # 今日官方净值已出(nav_date==本地今天)→ real_is_today True,前端据此隐藏预估。
+        today = datetime.now().strftime("%Y-%m-%d")
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(nav=1.03, nav_date=today, nav_prev=1.0))
+        self.assertTrue(item["real_is_today"])
+        self.assertEqual(item["real_pl"], 300.0)
+
+    def test_real_is_today_false_when_nav_date_is_past(self):
+        # 官方净值还停在上一交易日 → real_is_today False,前端仍显示预估。
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(nav=1.03, nav_date="2026-07-08", nav_prev=1.0))
+        self.assertFalse(item["real_is_today"])
+
+    def test_real_is_today_absent_when_no_nav(self):
+        # 无 nav → 不产生 real_is_today,前端按 falsy 处理(显示预估)。
+        h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
+        item = enrich_holding(h, self._quote(nav=None))
+        self.assertNotIn("real_is_today", item)
+
 
 class TestSummarize(unittest.TestCase):
     """summarize 直接喂富集项 dict，独立于 enrich_holding。"""
@@ -233,6 +254,36 @@ class TestSummarize(unittest.TestCase):
         s = summarize(items)
         self.assertEqual(s["total_real_value"], 0)
         self.assertIsNone(s["total_real_pl"])
+
+    def test_today_settled_true_when_all_real_are_today(self):
+        # 有 real_pl 的持有全部 real_is_today ⟹ today_settled True(总览用真实总额)。
+        items = [
+            {"est_value": 10500.0, "cost_amount": 8500.0, "today_pl": 500.0,
+             "real_value": 10300.0, "real_pl": 300.0, "real_is_today": True},
+            {"est_value": 4900.0, "cost_amount": 5200.0, "today_pl": -100.0,
+             "real_value": 4800.0, "real_pl": -200.0, "real_is_today": True},
+        ]
+        s = summarize(items)
+        self.assertTrue(s["today_settled"])
+
+    def test_today_settled_false_when_some_real_are_past(self):
+        # 只要有一笔 real 仍停在往日 ⟹ today_settled False(总览用预估总额)。
+        items = [
+            {"est_value": 10500.0, "cost_amount": 8500.0, "today_pl": 500.0,
+             "real_value": 10300.0, "real_pl": 300.0, "real_is_today": True},
+            {"est_value": 4900.0, "cost_amount": 5200.0, "today_pl": -100.0,
+             "real_value": 4800.0, "real_pl": -200.0, "real_is_today": False},
+        ]
+        s = summarize(items)
+        self.assertFalse(s["today_settled"])
+
+    def test_today_settled_false_when_no_real(self):
+        # 完全没有 real_pl(盘中/接口缺 nav)⟹ today_settled False。
+        items = [
+            {"est_value": 10500.0, "cost_amount": 8500.0, "today_pl": 500.0},
+        ]
+        s = summarize(items)
+        self.assertFalse(s["today_settled"])
 
 
 class TestKindSplit(unittest.TestCase):

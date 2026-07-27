@@ -17,6 +17,7 @@
 import json
 import os
 import sys
+from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -135,6 +136,9 @@ def enrich_holding(h, quote):
         item["nav_date"] = q.get("nav_date")
         item["real_value"] = round(real_shares * nav, 2)
         item["real_pl"] = round(real_shares * (nav - real_base), 2)
+        # 今日真实是否已出:官方净值日期 == 本地今天 ⟹ 今日已收盘结算。
+        # 前端据此在「预估」与「真实」间二选一(真实已出即不再显示预估)。
+        item["real_is_today"] = (q.get("nav_date") == datetime.now().strftime("%Y-%m-%d"))
     # 距目标: 目标净值 - 当前估值
     if h["target_price"] and q["gsz"]:
         item["gap_to_target"] = round(h["target_price"] - q["gsz"], 4)
@@ -175,6 +179,7 @@ def summarize(items):
     total_real_value = 0.0
     total_real_pl = 0.0
     real_count = 0
+    real_today_count = 0          # 有 real_pl 且 nav_date==今天 的持有数
     hold_count = 0
     watch_count = 0
     for it in items:
@@ -204,6 +209,8 @@ def summarize(items):
             total_real_value += it["real_value"]
             if it.get("real_pl") is not None:
                 total_real_pl += it["real_pl"]
+                if it.get("real_is_today"):
+                    real_today_count += 1
             real_count += 1
     total_pl = round(matched_est - total_cost, 2) if matched_count else None
     total_return_rate = (
@@ -222,6 +229,9 @@ def summarize(items):
         "total_return_rate": total_return_rate,
         "total_real_value": round(total_real_value, 2),
         "total_real_pl": round(total_real_pl, 2) if real_count else None,
+        # 今日真实是否全部结算:有 real_pl 的持有全部 nav_date==今天。
+        # 前端据此让总览「今日盈亏」头条在预估↔真实间二选一。
+        "today_settled": bool(real_count and real_today_count == real_count),
     }
 
 
@@ -248,6 +258,9 @@ def list_holdings(user_id):
             realized += p["realized_pnl"] or 0.0
             has_realized = True
     summary["total_realized_pnl"] = round(realized, 2) if has_realized else None
+    # 是否交易时段:供前端决定是否开 30s 轮询(收盘后静态,不轮询)。
+    from backend.datasource.fundgz import is_market_open
+    summary["market_open"] = is_market_open()
     conn.close()
     return {"items": items, "summary": summary}
 
