@@ -29,47 +29,50 @@ def _classify(fund_type):
     return "其他"
 
 
-def _market_value(hold_amount, dwjz, gsz, nav):
-    """单只持仓市值:份额=hold_amount/dwjz,市值优先 nav(收盘),回落 gsz(盘中)。
-
-    hold_amount 为按昨日净值 dwjz 的持仓金额;缺 dwjz 或 hold_amount 时无法反推份额,
-    返回 None。与 app.enrich_holding 的 real_value / est_value 口径一致。
-    """
-    if not hold_amount or not dwjz:
-        return None
-    shares = hold_amount / dwjz
-    if nav is not None:
-        return shares * nav
-    if gsz:
-        return shares * gsz
-    return None
-
-
 def _compute_summary(conn, user_id):
-    rows = conn.execute(
-        "SELECT h.fund_code, h.hold_amount, h.cost_amount, "
-        "q.gsz, q.dwjz, q.nav, fl.fund_type "
-        "FROM holding h "
-        "LEFT JOIN fund_quote q ON q.fund_code = h.fund_code "
-        "LEFT JOIN fund_list fl ON fl.fund_code = h.fund_code "
-        "WHERE h.user_id = ?",
-        (user_id,),
-    ).fetchall()
+    """组合汇总:流水优先 + 手填兼容(见 transactions.resolve_position)。
+
+    遍历「有持仓行 ∪ 有流水」的全部基金,逐只用 resolve_position 取权威持仓,
+    position_market_value 统一算市值。额外汇总 total_realized_pnl(累计落袋)。
+    """
+    from backend.api.transactions import resolve_position, position_market_value
+
+    codes = [r["fund_code"] for r in conn.execute(
+        "SELECT fund_code FROM holding WHERE user_id=? "
+        "UNION SELECT fund_code FROM fund_transaction WHERE user_id=?",
+        (user_id, user_id),
+    ).fetchall()]
 
     total_value = 0.0
     total_cost = 0.0
+    total_realized = 0.0
+    has_realized = False
     alloc_amount = {}     # cat -> 市值金额
     per_fund = []         # [(fund_code, value)] 用于集中度
-    for r in rows:
-        value = _market_value(r["hold_amount"], r["dwjz"], r["gsz"], r["nav"])
+    for code in codes:
+        q = conn.execute(
+            "SELECT q.gsz, q.dwjz, q.nav, fl.fund_type "
+            "FROM (SELECT ? AS fund_code) x "
+            "LEFT JOIN fund_quote q ON q.fund_code = x.fund_code "
+            "LEFT JOIN fund_list fl ON fl.fund_code = x.fund_code",
+            (code,),
+        ).fetchone()
+        pos = resolve_position(conn, code, user_id)
+        if pos["source"] == "transaction":
+            total_realized += pos["realized_pnl"] or 0.0
+            has_realized = True
+        value = position_market_value(
+            pos, q["dwjz"] if q else None, q["gsz"] if q else None,
+            q["nav"] if q else None,
+        )
         if value is None:
             continue
         value = round(value, 2)
         total_value += value
-        per_fund.append((r["fund_code"], value))
-        cat = _classify(r["fund_type"])
+        per_fund.append((code, value))
+        cat = _classify(q["fund_type"] if q else None)
         alloc_amount[cat] = round(alloc_amount.get(cat, 0.0) + value, 2)
-        cost = r["cost_amount"]
+        cost = pos["cost_amount"]
         if cost:
             total_cost += cost
 
@@ -110,6 +113,7 @@ def _compute_summary(conn, user_id):
         "total_cost": total_cost,
         "total_pnl": total_pnl,
         "total_return_pct": total_return_pct,
+        "total_realized_pnl": round(total_realized, 2) if has_realized else None,
         "holdings_count": len(per_fund),
         "allocation": allocation,
         "concentration": {
