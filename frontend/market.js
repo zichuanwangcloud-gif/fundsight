@@ -58,7 +58,7 @@ async function loadCategories() {
       const label = c.label || c.cat;
       const count = c.count != null ? `<span class="mkt-tab-n">${c.count}</span>` : "";
       const active = _mktState.cat === c.cat ? " active" : "";
-      return `<div class="mkt-tab${active}" data-cat="${c.cat}">${label}${count}</div>`;
+      return `<button type="button" class="mkt-tab${active}" data-cat="${c.cat}">${label}${count}</button>`;
     }).join("");
     tabs.querySelectorAll(".mkt-tab").forEach(el => {
       el.addEventListener("click", () => {
@@ -82,17 +82,30 @@ async function loadList(reset) {
   });
   if (_mktState.cat) params.set("cat", _mktState.cat);
   if (_mktState.q) params.set("q", _mktState.q);
-  const r = await fetch("/api/market?" + params.toString(), { credentials: "same-origin" });
-  if (r.status === 401) return showAuth();
-  const data = await r.json();
-  if (reset) {
-    _mktState.items = data.items || [];
-  } else {
-    _mktState.items = _mktState.items.concat(data.items || []);
+  try {
+    const r = await fetch("/api/market?" + params.toString(), { credentials: "same-origin" });
+    if (r.status === 401) return showAuth();
+    if (!r.ok) throw new Error("market " + r.status);
+    const data = await r.json();
+    if (reset) {
+      _mktState.items = data.items || [];
+    } else {
+      _mktState.items = _mktState.items.concat(data.items || []);
+    }
+    _mktState.total = data.total || 0;
+    renderList();
+    renderMore();
+  } catch (e) {
+    if (reset) {
+      list.innerHTML = `<div class="empty">基金列表加载失败，请检查网络后重试<br>
+        <button class="ghost" style="margin-top:12px" id="mkt-retry">重试</button></div>`;
+      const rb = $("#mkt-retry");
+      if (rb) rb.addEventListener("click", () => loadList(true));
+    } else {
+      _mktState.page = Math.max(1, _mktState.page - 1);  // 回退页码,允许重试同一页
+      renderMore();
+    }
   }
-  _mktState.total = data.total || 0;
-  renderList();
-  renderMore();
 }
 
 function renderList() {

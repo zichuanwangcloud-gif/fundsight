@@ -200,27 +200,31 @@ async function _ocrDoImport() {
     const data = await r.json();
     _ocrClose();
     if (typeof load === "function") load();  // 刷新持仓列表
-    alert(`已导入 ${data.imported || 0} 只基金到持仓`);
+    toast(`已导入 ${data.imported || 0} 只基金到持仓`);
   } catch (err) {
     _ocrError("导入失败，请重试");
   }
 }
 
-// ---- 极简 overlay(零依赖) ----
+// ---- 极简 overlay(零依赖):支持 Esc + 遮罩点击关闭,与原生 <dialog> 行为对齐 ----
 function _ocrOverlay(html) {
   let ov = document.getElementById("ocr-overlay");
   if (!ov) {
     ov = document.createElement("div");
     ov.id = "ocr-overlay";
+    ov.addEventListener("click", e => { if (e.target === ov) _ocrClose(); });
     document.body.appendChild(ov);
   }
   ov.innerHTML = `<div class="ocr-modal">${html}</div>`;
   ov.style.display = "flex";
+  document.addEventListener("keydown", _ocrKeydown);
 }
 function _ocrClose() {
   const ov = document.getElementById("ocr-overlay");
   if (ov) ov.style.display = "none";
+  document.removeEventListener("keydown", _ocrKeydown);
 }
+function _ocrKeydown(e) { if (e.key === "Escape") _ocrClose(); }
 function _ocrError(msg) {
   _ocrOverlay(`<h3>识别未成功</h3>
     <p class="ocr-note">${_esc(msg)}</p>

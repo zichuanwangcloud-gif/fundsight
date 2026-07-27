@@ -19,6 +19,7 @@
 #results div { padding: 11px 15px; cursor: pointer; border-bottom: 1px solid var(--line-2); }
 #results div:last-child { border-bottom: none; }
 #results div:hover { background: var(--brand-soft); }
+#results div:focus-visible { background: var(--brand-soft); outline: 2px solid var(--brand); outline-offset: -2px; }
 #results .code { color: var(--muted); font-size: 12px; margin-left: 6px; }
 #results .type { float: right; color: var(--faint); font-size: 12px; }
 
@@ -37,7 +38,14 @@
   transition: background .15s;
 }
 .summary .s-refresh button:hover { background: rgba(255,255,255,.28); }
+.summary .s-refresh button:disabled { opacity: .6; cursor: default; }
 .summary .s-refresh .s-time { opacity: .72; }
+.s-refresh-ico { display: inline-block; }
+.s-refresh button.spinning .s-refresh-ico { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 搜索下拉「无匹配结果」占位 */
+#results .results-none { padding: 11px 15px; color: var(--faint); cursor: default; }
 .summary .s-grid { display: flex; gap: 12px 30px; flex-wrap: wrap; }
 .summary .s-grid > div { font-size: 12px; opacity: .82; }
 .summary .s-grid b { display: block; font-size: 21px; font-weight: 800; opacity: 1; margin-top: 4px;
@@ -113,7 +121,11 @@ dialog .btns button { flex: 1; }
 .userbar button.ghost { padding: 6px 12px; font-size: 12px; }
 
 /* ---------- 站内通知角标 + 浮窗 ---------- */
-.notif-badge { position: relative; cursor: pointer; font-size: 16px; padding: 2px 4px; }
+.notif-badge {
+  position: relative; cursor: pointer; font-size: 16px; padding: 2px 4px;
+  border: none; background: none; line-height: 1; color: inherit;
+  min-width: 32px; min-height: 32px;
+}
 .notif-badge b {
   position: absolute; top: -6px; right: -10px; background: var(--up); color: #fff;
   font-size: 10px; min-width: 16px; height: 16px; line-height: 16px; text-align: center;
@@ -138,3 +150,54 @@ dialog .btns button { flex: 1; }
 .detail-link { margin-top: 10px; font-size: 12px; }
 .detail-link a { color: var(--brand); font-weight: 600; }
 .detail-link a:hover { text-decoration: underline; }
+
+/* ---------- 全站统一反馈:toast / 模态壳 / 确认弹窗(见 app.js) ---------- */
+.app-toast {
+  position: fixed; left: 50%; bottom: 32px; transform: translate(-50%, 8px);
+  background: var(--ink); color: var(--card); padding: 11px 18px; border-radius: var(--r-btn);
+  z-index: 1100; box-shadow: var(--sh-pop); font-size: 14px; max-width: 88vw;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.app-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.app-overlay {
+  position: fixed; inset: 0; z-index: 1000; display: flex;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(20,30,55,.34); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+.app-overlay-box {
+  background: var(--card); color: var(--ink); border-radius: var(--r-lg);
+  box-shadow: var(--sh-pop); padding: 22px 24px; width: 340px; max-width: 92vw;
+}
+.app-overlay-box h3 { margin: 0 0 14px; font-size: 17px; }
+.app-overlay-box label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 5px; }
+.app-overlay-box input {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); font-size: 14px; background: var(--card); color: var(--ink);
+  margin: 0 0 8px;
+}
+.app-overlay-box input:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+.app-overlay-box .err { color: var(--up); font-size: 13px; min-height: 18px; margin-top: 6px; }
+.app-confirm-msg { font-size: 15px; line-height: 1.6; color: var(--ink); }
+.app-overlay-btns { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+.app-overlay-btns button { min-width: 88px; }
+
+/* 危险动作按钮变体(删除等) */
+.danger {
+  border: none; border-radius: var(--r-btn); font-size: 14px; font-weight: 600;
+  cursor: pointer; padding: 10px 16px; background: var(--up); color: #fff;
+  transition: filter .15s;
+}
+.danger:hover { filter: brightness(1.06); }
+
+/* 键盘焦点可见(自定义 role=button 与原生控件统一) */
+[role="button"]:focus-visible, .tabs .tab:focus-visible,
+.card .del:focus-visible, .card .edit:focus-visible {
+  outline: 2px solid var(--brand); outline-offset: 2px; border-radius: var(--r-sm);
+}
+
+/* 移除 / 编辑:由 <button> 渲染,抹平原生外观并保证触控热区(字号沿用早前 .card .del 的 12px) */
+.card .del, .card .edit {
+  border: none; background: none; font-family: inherit; line-height: 1;
+  min-width: 40px; min-height: 32px; padding: 4px 6px;
+}

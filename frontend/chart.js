@@ -11,7 +11,18 @@
 // ============================================================================
 
 (function () {
-  const UP = "#e5432f", DOWN = "#0f9d58", GRID = "#eef1f6", AXIS = "#9aa2b3";
+  // 颜色从 theme.css token 读取(随亮/暗色自动适配),读不到时回退到亮色默认值。
+  function tok(name, fallback) {
+    try {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return v || fallback;
+    } catch { return fallback; }
+  }
+  const UP = () => tok("--up", "#e5432f");
+  const DOWN = () => tok("--down", "#0f9d58");
+  const GRID = () => tok("--grid", "#eef1f6");
+  const AXIS = () => tok("--axis", "#6e7686");
+  const ZERO = () => tok("--axis", "#c7cdda");
   let _uid = 0;
 
   function renderLineChart(container, points, opts) {
@@ -22,6 +33,7 @@
       container.innerHTML = `<div class="d-empty">${opts.emptyHint || "数据点不足,暂无法画图"}</div>`;
       return;
     }
+    const grid_c = GRID(), axis_c = AXIS();
 
     const id = "cch" + (++_uid);
     const W = 700, H = opts.height || 220;
@@ -46,7 +58,7 @@
     const fmtV = opts.fmtValue || (v => (+v).toFixed(2));
     const fmtL = opts.fmtLabel || (l => String(l || ""));
 
-    const color = opts.color || (vals[n - 1] >= vals[0] ? UP : DOWN);
+    const color = opts.color || (vals[n - 1] >= vals[0] ? UP() : DOWN());
 
     // —— 水平网格线 + Y 轴刻度 ——
     const TICKS = 4;
@@ -54,21 +66,21 @@
     for (let t = 0; t <= TICKS; t++) {
       const v = min + span * t / TICKS;
       const y = yAt(v).toFixed(1);
-      grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${GRID}" stroke-width="1"/>`;
-      ylabels += `<text x="${padL - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${AXIS}">${fmtV(v)}</text>`;
+      grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${grid_c}" stroke-width="1"/>`;
+      ylabels += `<text x="${padL - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${axis_c}">${fmtV(v)}</text>`;
     }
     // —— 盘中零轴(虚线,强调) ——
     let zero = "";
     if (opts.zeroLine) {
       const zy = yAt(0).toFixed(1);
-      zero = `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="#c7cdda" stroke-width="1" stroke-dasharray="4 3"/>`;
+      zero = `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="${ZERO()}" stroke-width="1" stroke-dasharray="4 3"/>`;
     }
 
     // —— X 轴日期标签(首/中/末) ——
     const xIdx = n <= 2 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1];
     const xlabels = xIdx.map(i => {
       const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
-      return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="${AXIS}">${fmtL(pts[i].label)}</text>`;
+      return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="${axis_c}">${fmtL(pts[i].label)}</text>`;
     }).join("");
 
     // —— 折线 + 渐变面积 ——
@@ -81,7 +93,7 @@
 
     // —— 十字准星 + 焦点圆(初始隐藏,pointer 时更新) ——
     const cross = `<g id="${id}-cross" style="display:none">
-        <line id="${id}-vline" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="${AXIS}" stroke-width="1" stroke-dasharray="3 3"/>
+        <line id="${id}-vline" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="${axis_c}" stroke-width="1" stroke-dasharray="3 3"/>
         <circle id="${id}-dot" r="4" fill="#fff" stroke="${color}" stroke-width="2.5"/>
       </g>`;
 
@@ -175,6 +187,7 @@
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const n = Math.max(...ss.map(s => s.points.length));
     const base = ss[0].points;   // x 轴标签取最长/首序列
+    const grid_c = GRID(), axis_c = AXIS(), zero_c = ZERO();
 
     let min = Infinity, max = -Infinity;
     ss.forEach(s => s.points.forEach(p => {
@@ -196,20 +209,20 @@
     let grid = "", ylabels = "";
     for (let t = 0; t <= TICKS; t++) {
       const v = min + span * t / TICKS, y = yAt(v).toFixed(1);
-      grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eef1f6" stroke-width="1"/>`;
-      ylabels += `<text x="${padL - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa2b3">${fmtV(v)}</text>`;
+      grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${grid_c}" stroke-width="1"/>`;
+      ylabels += `<text x="${padL - 6}" y="${(+y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${axis_c}">${fmtV(v)}</text>`;
     }
     // 零轴强调(收益率 0%)
     let zero = "";
     if (min < 0 && max > 0) {
       const zy = yAt(0).toFixed(1);
-      zero = `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="#c7cdda" stroke-width="1" stroke-dasharray="4 3"/>`;
+      zero = `<line x1="${padL}" y1="${zy}" x2="${W - padR}" y2="${zy}" stroke="${zero_c}" stroke-width="1" stroke-dasharray="4 3"/>`;
     }
     const xIdx = n <= 2 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1];
     const xlabels = xIdx.map(i => {
       const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
       const lbl = (base[i] || base[base.length - 1] || {}).label;
-      return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="#9aa2b3">${fmtL(lbl)}</text>`;
+      return `<text x="${xAt(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-size="10" fill="${axis_c}">${fmtL(lbl)}</text>`;
     }).join("");
 
     const polylines = ss.map(s => {
@@ -218,7 +231,7 @@
     }).join("");
 
     const cross = `<g id="${id}-cross" style="display:none">
-        <line id="${id}-vline" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="#9aa2b3" stroke-width="1" stroke-dasharray="3 3"/>
+        <line id="${id}-vline" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" stroke="${axis_c}" stroke-width="1" stroke-dasharray="3 3"/>
       </g>`;
     const legend = ss.map(s =>
       `<span class="mlc-leg"><i style="background:${s.color}"></i>${s.name}</span>`).join("");

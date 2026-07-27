@@ -95,7 +95,8 @@ async function loadRank() {
 function rankRow(it, pf) {
   const ret = it[pf];
   const medal = it.rank <= 3 ? ` rk-top` : "";
-  return `<div class="rank-row" data-code="${it.fund_code}">
+  return `<div class="rank-row" data-code="${it.fund_code}" role="button" tabindex="0"
+       aria-label="查看 ${(it.name || it.fund_code)} 详情">
       <span class="rk-no${medal}">${it.rank}</span>
       <span class="rk-name"><b>${it.name || it.fund_code}</b><i>${it.fund_code}</i></span>
       <span class="rk-ret ${cls(ret)}">${ret == null ? "—" : sign(+(+ret).toFixed(2)) + "%"}</span>
