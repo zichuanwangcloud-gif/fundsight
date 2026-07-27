@@ -214,8 +214,21 @@ def list_holdings(user_id):
     for h in holds:
         q = conn.execute("SELECT * FROM fund_quote WHERE fund_code=?", (h["fund_code"],)).fetchone()
         items.append(enrich_holding(h, q))
+    summary = summarize(items)
+    # 累计已实现盈亏(落袋):跨该用户全部有卖出流水的基金汇总(流水维度,与持仓并集无关)。
+    from backend.api.transactions import compute_position
+    tx_codes = [r["fund_code"] for r in conn.execute(
+        "SELECT DISTINCT fund_code FROM fund_transaction WHERE user_id=?", (user_id,)).fetchall()]
+    realized = 0.0
+    has_realized = False
+    for code in tx_codes:
+        p = compute_position(code, user_id, conn=conn)
+        if p["has_tx"]:
+            realized += p["realized_pnl"] or 0.0
+            has_realized = True
+    summary["total_realized_pnl"] = round(realized, 2) if has_realized else None
     conn.close()
-    return {"items": items, "summary": summarize(items)}
+    return {"items": items, "summary": summary}
 
 
 def add_holding(data, user_id):

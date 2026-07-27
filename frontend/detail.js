@@ -37,6 +37,7 @@ function renderDetail(view, code) {
     <div id="d-returns" class="d-profile"><div class="d-loading">阶段收益加载中…</div></div>
     <div id="d-risk" class="d-profile"><div class="d-loading">风险指标加载中…</div></div>
     <div id="d-cost-curve" class="d-chart-card" hidden><div class="d-loading">成本曲线加载中…</div></div>
+    <div id="d-realized" class="d-profile" hidden></div>
     <div id="d-attribution" class="d-chart-card" hidden><div class="d-loading">归因加载中…</div></div>
     <div class="d-chart-card">
       <div class="d-spans" id="d-spans">
@@ -71,6 +72,7 @@ async function loadDetail(chartOnly) {
         .then(ret => renderReturns(ret.periods))
         .catch(() => { const b = $("#d-returns"); if (b) b.innerHTML = ""; });
       loadCostCurve();
+      loadRealized();
       loadAttribution();
       loadRisk();
     }
@@ -321,7 +323,43 @@ async function loadCostCurve() {
   }
 }
 
-// 阶段收益归因 —— 每个阶段画一批次贡献点列(零轴上下分色),不画连续走势。
+// 已实现盈亏 + 卖出复盘 —— 每笔卖出的落袋盈亏 / 收益率 / 持有天数 / 年化(点状,不画曲线)。
+// 数据来自 GET /api/fund/{code}/realized(用户维度,按登录隔离)。无卖出记录时隐藏。
+async function loadRealized() {
+  const box = $("#d-realized");
+  if (!box) return;
+  try {
+    const resp = await fetch("/api/fund/" + encodeURIComponent(_detailCode) + "/realized",
+      { credentials: "same-origin" });
+    if (resp.status === 401 || !resp.ok) { box.hidden = true; return; }
+    const r = await resp.json();
+    if (!r.has_sells) { box.hidden = true; return; }  // 没卖过就不展示
+    box.hidden = false;
+    const rp = r.realized_pnl;
+    const rows = r.sells.map(s => {
+      const days = s.hold_days == null ? "—" : s.hold_days + "天";
+      const pct = s.realized_pct == null ? "—" : sign(s.realized_pct) + "%";
+      const ann = s.annualized_pct == null ? "" :
+        `<span class="rz-ann">年化 ${sign(s.annualized_pct)}%</span>`;
+      return `<div class="rz-row">
+        <span class="rz-date">${s.date || "—"}</span>
+        <span class="rz-pnl ${scls(s.realized_pnl)}">${sign(s.realized_pnl)}</span>
+        <span class="rz-pct ${scls(s.realized_pct)}">${pct}</span>
+        <span class="rz-days">${days}${ann}</span>
+      </div>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="d-name">卖出复盘<span class="fcode">已实现 · 落袋为安</span></div>
+      <div class="rz-sum">累计已实现盈亏 <b class="${scls(rp)}">${sign(rp)}</b> 元</div>
+      <div class="rz-head"><span>卖出日</span><span>落袋盈亏</span><span>收益率</span><span>持有</span></div>
+      ${rows}
+      <div class="rz-foot">持有天数按加权平均建仓日估算,年化仅供参考。</div>`;
+  } catch {
+    box.hidden = true;
+  }
+}
+
+
 // period: {batches:[{date,shares,cost_price,contribution,ratio}], total} | null
 function attributionSvg(period) {
   if (!period || !period.batches || !period.batches.length) return "";
