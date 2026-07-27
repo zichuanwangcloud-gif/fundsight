@@ -192,6 +192,31 @@ class TestEngine(_DbCase):
         self.assertIn("小结", r["reply"])
         self.assertEqual(r["disclaimer"], ai_engine.DISCLAIMER)
 
+    def test_max_tokens_env_override(self):
+        # 默认足够大（修复推理模型截断问题），且可经环境变量覆盖；非法值回退默认
+        with patch.dict(os.environ, {"FUNDSIGHT_AI_MAX_TOKENS": ""}, clear=False):
+            self.assertEqual(ai_engine._max_tokens(), ai_engine.MAX_TOKENS)
+        with patch.dict(os.environ, {"FUNDSIGHT_AI_MAX_TOKENS": "3000"}):
+            self.assertEqual(ai_engine._max_tokens(), 3000)
+        with patch.dict(os.environ, {"FUNDSIGHT_AI_MAX_TOKENS": "abc"}):
+            self.assertEqual(ai_engine._max_tokens(), ai_engine.MAX_TOKENS)
+        with patch.dict(os.environ, {"FUNDSIGHT_AI_MAX_TOKENS": "-5"}):
+            self.assertEqual(ai_engine._max_tokens(), ai_engine.MAX_TOKENS)
+
+    def test_truncation_appends_notice(self):
+        # 命中长度上限（stop_reason=max_tokens）时，回复末尾追加友好提示而非静默截断
+        resp = json.dumps({
+            "stop_reason": "max_tokens",
+            "content": [{"type": "text", "text": "近况小结：正文刚开个头就被"}],
+        })
+        with patch.dict(os.environ, {"FUNDSIGHT_AI_API_KEY": "k", "FUNDSIGHT_AI_PROVIDER": "anthropic"}):
+            with patch("backend.datasource.ai_engine.urllib.request.urlopen",
+                       side_effect=[_anthropic_resp(resp)]):
+                r = ai_engine.run_chat([{"role": "user", "content": "分析一下"}])
+        self.assertTrue(r["ok"])
+        self.assertIn("截断", r["reply"])
+        self.assertIn("FUNDSIGHT_AI_MAX_TOKENS", r["reply"])
+
 
 class TestApiRoutes(_DbCase):
     def test_status(self):
