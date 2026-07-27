@@ -19,3 +19,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# 密钥 / 本地环境(AI 端点与 api key,复制 .env.example 填写,不入库)
+.env
+.env.local
