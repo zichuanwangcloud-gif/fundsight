@@ -210,8 +210,12 @@ function staleHint(updatedAt) {
 function renderSummary(s) {
   const box = $("#summary");
   if (!s || !s.hold_count) { box.style.display = "none"; return; }
-  const pl = s.total_today_pl, tot = s.total_pl, rate = s.total_return_rate;
+  const tot = s.total_pl, rate = s.total_return_rate;
   const now = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  // 今日盈亏头条:今日真实全部结算(today_settled)⟹ 用真实总额;否则用预估总额。
+  const settled = !!s.today_settled;
+  const todayPl = settled ? s.total_real_pl : s.total_today_pl;
+  const todayTag = settled ? '<span class="tag nav">真实</span>' : '<span class="tag">预估</span>';
   box.innerHTML = `
     <div class="s-head">
       <span class="s-title">组合总览 · ${s.hold_count} 只持有</span>
@@ -222,17 +226,17 @@ function renderSummary(s) {
     </div>
     <div class="s-grid">
       <div>总估值市值<b>${s.total_est_value.toLocaleString()}</b></div>
-      <div>今日盈亏<b class="${scls(pl)}">${sign(pl)}</b></div>
+      ${todayPl != null ? `<div>今日盈亏${todayTag}<b class="${scls(todayPl)}">${sign(todayPl)}</b></div>` : ""}
       ${tot != null ? `<div>累计盈亏<b class="${scls(tot)}">${sign(tot)}</b></div>` : ""}
       ${rate != null ? `<div>总收益率<b class="${scls(rate)}">${sign(rate)}%</b></div>` : ""}
-      ${s.total_real_pl != null ? `<div>收盘真实盈亏<b class="${scls(s.total_real_pl)}">${sign(s.total_real_pl)}</b></div>` : ""}
+      ${!settled && s.total_real_pl != null ? `<div>收盘真实盈亏<b class="${scls(s.total_real_pl)}">${sign(s.total_real_pl)}</b></div>` : ""}
       ${s.total_realized_pnl != null ? `<div>已落袋<b class="${scls(s.total_realized_pnl)}">${sign(s.total_realized_pnl)}</b></div>` : ""}
     </div>
     ${tot != null && s.matched_count < s.hold_count ? `<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>` : ""}`;
   box.style.display = "block";
 }
 
-// 持有卡片:今日估值 + 收盘真实盈亏 + 止盈止损 + 走势(完整口径)
+// 持有卡片:今日盈亏(预估↔真实互斥) + 止盈止损 + 走势(完整口径)
 function renderHoldCard(it) {
   const z = it.gszzl;
   const pl = it.today_pl;
@@ -243,6 +247,11 @@ function renderHoldCard(it) {
   const badges = [];
   if (it.hit_stop_profit) badges.push(`<span class="badge profit">🎯 止盈</span>`);
   if (it.hit_stop_loss) badges.push(`<span class="badge loss">⚠️ 止损</span>`);
+  // 今日盈亏头条:今日官方净值已出(real_is_today)⟹ 显示「今日真实盈亏」;
+  // 否则显示「今日预估盈亏」(盘中/未结算)。二选一,真实已出即不再显示预估。
+  const todayLine = it.real_is_today
+    ? `<div>今日真实盈亏<span class="tag nav">${it.nav_date || "官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>`
+    : (pl != null ? `<div>今日预估盈亏<span class="tag">预估</span><b class="${cls(pl)}">${sign(pl)}</b></div>` : "");
   return `<div class="${cardCls.join(" ")}">
     <button type="button" class="del" aria-label="移除持有" onclick="del(${it.id}, false)">移除 ✕</button>
     <button type="button" class="edit" aria-label="编辑持有" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑 ✎</button>
@@ -254,10 +263,10 @@ function renderHoldCard(it) {
     <div class="detail-link"><a href="#/fund/${it.fund_code}" onclick="event.stopPropagation()">查看详情 →</a></div>
     <div class="metrics">
       ${it.hold_amount != null ? `<div>持仓金额<b>${it.hold_amount}</b></div>` : ""}
-      ${pl != null ? `<div>今日盈亏<span class="tag">估算</span><b class="${cls(pl)}">${sign(pl)}</b></div>` : ""}
+      ${todayLine}
       ${it.est_value != null ? `<div>估算市值<b>${it.est_value}</b></div>` : ""}
       ${cr != null ? `<div>持仓收益率<span class="tag">估算</span><b class="${cls(cr)}">${sign(cr)}%</b></div>` : ""}
-      ${it.real_pl != null ? `<div>收盘真实盈亏<span class="tag nav">${it.nav_date || "官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>` : ""}
+      ${!it.real_is_today && it.real_pl != null ? `<div>收盘真实盈亏<span class="tag nav">${it.nav_date || "官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>` : ""}
       ${it.real_return_rate != null ? `<div>真实收益率<b class="${cls(it.real_return_rate)}">${sign(it.real_return_rate)}%</b></div>` : ""}
       ${it.gap_to_target != null ? `<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>` : ""}
     </div>
@@ -296,6 +305,29 @@ function renderWatchCard(it) {
 }
 
 let _pfLoading = false;
+let _pfPollTimer = null;   // 开盘时段 30s 自动刷新预估的定时器
+
+// 盘中(market_open)且仍在持仓页 ⟹ 开 30s 轮询;否则清除(收盘/切页即停)。
+function schedulePfPoll(open) {
+  const onPage = location.hash.startsWith("#/portfolio");
+  if (open && onPage) {
+    if (!_pfPollTimer) _pfPollTimer = setInterval(pfPollTick, 30000);
+  } else if (_pfPollTimer) {
+    clearInterval(_pfPollTimer);
+    _pfPollTimer = null;
+  }
+}
+
+function pfPollTick() {
+  // 页面已切走 ⟹ 停止轮询,防泄漏(路由销毁不显式回调,这里自守卫)。
+  if (!location.hash.startsWith("#/portfolio")) {
+    clearInterval(_pfPollTimer);
+    _pfPollTimer = null;
+    return;
+  }
+  load();   // 静默刷新:列表已有子节点,load 不弹「加载中」占位;_pfLoading 防抖并发。
+}
+
 async function load() {
   if (_pfLoading) return;                       // 防抖:加载中忽略重复点击(如连点刷新)
   _pfLoading = true;
@@ -330,6 +362,7 @@ async function load() {
     switchPfTab(_pfTab);
 
     loadSparklines(items);
+    schedulePfPoll(data.summary && data.summary.market_open);
   } catch (e) {
     if (holdList) holdList.innerHTML = `<div class="empty">加载失败，请检查网络后重试<br>
       <button class="ghost" style="margin-top:12px" onclick="load()">重试</button></div>`;

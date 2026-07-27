@@ -97,6 +97,57 @@ class TestGetIntraday(unittest.TestCase):
         self.assertEqual(code, 400)
         self.assertEqual(obj, {"error": "缺少基金代码"})
 
+    def _seed_holding(self, user_id, code="020608", hold_amount=10000.0):
+        conn = sqlite3.connect(self.path)
+        conn.execute(
+            "INSERT INTO holding(user_id,fund_code,hold_amount,kind,created_at) "
+            "VALUES (?,?,?, 'hold', datetime('now','localtime'))",
+            (user_id, code, hold_amount),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_pl_ticks_for_logged_in_holder(self):
+        # 登录用户持有该基金:返回今日预估盈亏(元)时序,口径=份额*(gsz-dwjz)。
+        # dwjz=1.0 hold=10000 → shares=10000;ticks gsz=1.001/1.015/0.995
+        # → pl=10.0 / 150.0 / -50.0(与 enrich_holding today_pl 同口径)。
+        self._seed_today_ticks()
+        self._seed_holding(user_id=7)
+        ctx = Ctx(params={"code": "020608"}, user_id=7)
+        with patch("backend.api.intraday.is_market_open", return_value=True):
+            result = intraday.get_intraday(ctx)
+        self.assertEqual(result["hold_amount"], 10000.0)
+        self.assertEqual(result["pl_baseline"], 1.000)
+        pl = result["pl_ticks"]
+        self.assertEqual(len(pl), 3)
+        self.assertEqual(pl[0], {"quote_time": "09:31:00", "pl": 10.0})
+        self.assertEqual(pl[1], {"quote_time": "10:00:00", "pl": 150.0})
+        self.assertEqual(pl[2], {"quote_time": "14:30:00", "pl": -50.0})
+        # latest_pl 来自最新快照 gsz=0.995 → -50.0
+        self.assertEqual(result["latest_pl"], -50.0)
+
+    def test_pl_ticks_empty_for_anonymous(self):
+        # 未登录:不泄露任何持仓派生,端点仍 200。
+        self._seed_today_ticks()
+        self._seed_holding(user_id=7)
+        ctx = Ctx(params={"code": "020608"})  # user_id=None
+        with patch("backend.api.intraday.is_market_open", return_value=True):
+            result = intraday.get_intraday(ctx)
+        self.assertIsNone(result["hold_amount"])
+        self.assertIsNone(result["pl_baseline"])
+        self.assertIsNone(result["latest_pl"])
+        self.assertEqual(result["pl_ticks"], [])
+
+    def test_pl_ticks_empty_when_not_held(self):
+        # 登录但没持有这只基金:pl 系列为空(不误算)。
+        self._seed_today_ticks()
+        self._seed_holding(user_id=7, code="999999")  # 持有的是另一只
+        ctx = Ctx(params={"code": "020608"}, user_id=7)
+        with patch("backend.api.intraday.is_market_open", return_value=True):
+            result = intraday.get_intraday(ctx)
+        self.assertIsNone(result["hold_amount"])
+        self.assertEqual(result["pl_ticks"], [])
+
     def test_registered_in_routes(self):
         self.assertEqual(len(intraday.ROUTES), 1)
         method, pattern, handler = intraday.ROUTES[0]
