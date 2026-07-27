@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS holding (
     stop_loss     REAL,   -- 止损线 %
     trailing_stop_pct REAL,  -- 移动止盈回撤 %(PRD-07,从 peak_nav 回撤触发)
     peak_nav    REAL,   -- 持仓期最高净值(scheduler 日更,只增不减)
+    kind          TEXT DEFAULT 'watch',  -- 'watch'=自选(纯关注) / 'hold'=持有(有持仓金额,算真实收益)
     created_at    TEXT
 );
 
@@ -323,6 +324,13 @@ def _ensure_columns(conn):
         conn.execute("ALTER TABLE holding ADD COLUMN trailing_stop_pct REAL")
     if "peak_nav" not in hold_cols:
         conn.execute("ALTER TABLE holding ADD COLUMN peak_nav REAL")
+    # 自选/持有分离:kind 显式区分 'watch'(仅关注,纯列表) 与 'hold'(有持仓金额,算真实收益/今日估值)。
+    # 旧库回填:已录持仓金额的行视为 'hold',其余视为 'watch'。
+    if "kind" not in hold_cols:
+        conn.execute("ALTER TABLE holding ADD COLUMN kind TEXT")
+        conn.execute(
+            "UPDATE holding SET kind='hold' WHERE kind IS NULL AND hold_amount IS NOT NULL")
+        conn.execute("UPDATE holding SET kind='watch' WHERE kind IS NULL")
 
 
 def init_db(with_seed=True):

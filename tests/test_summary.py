@@ -235,5 +235,38 @@ class TestSummarize(unittest.TestCase):
         self.assertIsNone(s["total_real_pl"])
 
 
+class TestKindSplit(unittest.TestCase):
+    """自选/持有 分离:summarize 只把持有计入金额汇总,并分别计数。"""
+
+    def test_watch_excluded_from_totals(self):
+        # 一笔持有 + 一笔纯自选(kind='watch',无金额)→ 汇总只算持有
+        items = [
+            {"kind": "hold", "hold_amount": 10000.0, "est_value": 10500.0,
+             "cost_amount": 8500.0, "today_pl": 500.0},
+            {"kind": "watch", "gszzl": 1.2},  # 纯自选:仅涨幅,无金额
+        ]
+        s = summarize(items)
+        self.assertEqual(s["hold_count"], 1)
+        self.assertEqual(s["watch_count"], 1)
+        self.assertEqual(s["count"], 2)
+        self.assertEqual(s["total_est_value"], 10500.0)   # 自选不进市值
+        self.assertEqual(s["total_today_pl"], 500.0)
+
+    def test_amount_implies_hold_even_without_kind(self):
+        # 兼容旧数据:无 kind 但有 hold_amount → 视为持有
+        items = [{"hold_amount": 3000.0, "est_value": 3100.0, "today_pl": 20.0}]
+        s = summarize(items)
+        self.assertEqual(s["hold_count"], 1)
+        self.assertEqual(s["watch_count"], 0)
+
+    def test_pure_watch_only(self):
+        items = [{"kind": "watch", "gszzl": -0.8}, {"kind": "watch", "gszzl": 2.1}]
+        s = summarize(items)
+        self.assertEqual(s["hold_count"], 0)
+        self.assertEqual(s["watch_count"], 2)
+        self.assertEqual(s["total_est_value"], 0)
+        self.assertIsNone(s["total_pl"])
+
+
 if __name__ == "__main__":
     unittest.main()

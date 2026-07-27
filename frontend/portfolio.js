@@ -1,9 +1,19 @@
-// 「我的持仓」页 —— 搜索加自选 + 持仓卡片(盈亏/止盈止损/走势图)。
+// 「我的基金」页 —— 搜索 + 自选(纯关注列表) / 持有(真实收益+今日估值卡片) 双分区。
 // 由 app.js 的路由在 #/portfolio 时调用 registerPage 的渲染函数。
 // cls / scls / sign / $ 来自 app.js(全局)。
+//
+// 数据模型:GET /api/holdings 返回 items(每条带 kind:'hold'|'watch') + summary(hold_count/watch_count)。
+//   持有(kind==='hold' 或有 hold_amount):算今日估值/收盘真实盈亏/止盈止损,进组合总览。
+//   自选(kind==='watch' 且无金额):仅关注,展示涨跌幅+走势,不进任何金额汇总。
 
 let _pfTimer = null;
-let editingId = null;   // null=新增，非空=编辑该持仓 id
+let editingId = null;   // null=新增,非空=编辑该持仓 id
+let dlgKind = "watch";  // 当前弹窗模式:'watch'(加自选) / 'hold'(记持有)
+
+// 是否为「持有」:与后端 summarize 口径一致(kind==='hold' 或已录持仓金额)
+function isHold(it) {
+  return it.kind === "hold" || it.hold_amount != null;
+}
 
 function renderPortfolio(view) {
   view.innerHTML = `
@@ -18,25 +28,39 @@ function renderPortfolio(view) {
     </div>
     <div id="summary" class="summary"></div>
     <div id="pf-allocation" class="summary"></div>
-    <div id="list"></div>
+    <div id="hold-section">
+      <div class="sec-head"><span class="sec-title">💰 我的持有</span></div>
+      <div id="hold-list"></div>
+    </div>
+    <div id="watch-section">
+      <div class="sec-head"><span class="sec-title">⭐ 自选关注</span><span id="watch-count" class="sec-sub"></span></div>
+      <div id="watch-list"></div>
+    </div>
     <dialog id="dlg">
       <h3 id="dlg-title">添加自选</h3>
+      <div class="dlg-kind">
+        <button type="button" id="kind-watch" class="kbtn" onclick="setDlgKind('watch')">⭐ 加自选</button>
+        <button type="button" id="kind-hold" class="kbtn" onclick="setDlgKind('hold')">💰 记持有</button>
+      </div>
+      <p class="dlg-hint" id="dlg-hint">自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益请选「记持有」。</p>
       <input type="hidden" id="d-code">
-      <label>持仓金额（元，可留空）</label>
-      <input id="d-hold" type="number" step="0.01" placeholder="如 10000">
-      <label>买入成本（元，可留空）</label>
-      <input id="d-cost" type="number" step="0.01" placeholder="如 8500">
-      <label>目标净值（预期，可留空）</label>
-      <input id="d-target" type="number" step="0.0001" placeholder="如 1.80">
-      <label>目标收益率 %（可留空）</label>
-      <input id="d-target-rate" type="number" step="0.01" placeholder="如 15">
-      <label>止盈线 %（达到即提醒，可留空）</label>
-      <input id="d-profit" type="number" step="0.01" placeholder="如 10">
-      <label>止损线 %（跌破即提醒，通常为负，可留空）</label>
-      <input id="d-loss" type="number" step="0.01" placeholder="如 -8">
+      <div id="d-hold-fields">
+        <label>持仓金额（元）</label>
+        <input id="d-hold" type="number" step="0.01" placeholder="如 10000">
+        <label>买入成本（元，可留空）</label>
+        <input id="d-cost" type="number" step="0.01" placeholder="如 8500">
+        <label>目标净值（预期，可留空）</label>
+        <input id="d-target" type="number" step="0.0001" placeholder="如 1.80">
+        <label>目标收益率 %（可留空）</label>
+        <input id="d-target-rate" type="number" step="0.01" placeholder="如 15">
+        <label>止盈线 %（达到即提醒，可留空）</label>
+        <input id="d-profit" type="number" step="0.01" placeholder="如 10">
+        <label>止损线 %（跌破即提醒，通常为负，可留空）</label>
+        <input id="d-loss" type="number" step="0.01" placeholder="如 -8">
+      </div>
       <div class="btns">
         <button class="ghost" onclick="document.getElementById('dlg').close()">取消</button>
-        <button class="primary" onclick="submitHolding()">加入自选</button>
+        <button class="primary" id="dlg-submit" onclick="submitHolding()">加入自选</button>
       </div>
     </dialog>`;
 
@@ -52,7 +76,7 @@ function renderPortfolio(view) {
       if (r.status === 401) return showAuth();
       const funds = await r.json();
       results.innerHTML = funds.map(f =>
-        `<div role="button" tabindex="0" aria-label="添加自选 ${f.name}"
+        `<div role="button" tabindex="0" aria-label="添加 ${f.name}"
               onclick='openDlg(${JSON.stringify(f).replace(/'/g, "&#39;")})'>
            ${f.name}<span class="code">${f.fund_code}</span>
            <span class="type">${f.fund_type || ""}</span></div>`).join("")
@@ -66,19 +90,34 @@ function renderPortfolio(view) {
   load();
 }
 
+// 弹窗模式切换:自选隐藏金额字段,持有展开全部字段
+function setDlgKind(kind) {
+  dlgKind = kind;
+  const watchMode = kind === "watch";
+  $("#kind-watch").classList.toggle("active", watchMode);
+  $("#kind-hold").classList.toggle("active", !watchMode);
+  $("#d-hold-fields").hidden = watchMode;
+  $("#dlg-hint").textContent = watchMode
+    ? "自选只是加入关注列表，不计入组合盈亏。想跟踪真实收益请选「记持有」。"
+    : "记持有会按金额算今日估值、收盘真实盈亏与止盈止损，并计入组合总览。";
+  $("#dlg-submit").textContent = editingId ? "保存" : (watchMode ? "加入自选" : "加入持有");
+}
+
 function openDlg(f) {
   const results = $("#results"); if (results) results.style.display = "none";
   const q = $("#q"); if (q) q.value = "";
   editingId = null;
-  $("#dlg-title").textContent = "添加自选 · " + f.name;
+  $("#dlg-title").textContent = f.name || f.fund_code;
   $("#d-code").value = f.fund_code;
   $("#d-hold").value = $("#d-cost").value = $("#d-target").value = "";
   $("#d-target-rate").value = $("#d-profit").value = $("#d-loss").value = "";
+  setDlgKind("watch");   // 搜索新增默认「自选」,想记持有一键切换
   $("#dlg").showModal();
 }
+
 function editHolding(it) {
   editingId = it.id;
-  $("#dlg-title").textContent = "编辑持仓 · " + (it.name || it.fund_code);
+  $("#dlg-title").textContent = "编辑 · " + (it.name || it.fund_code);
   $("#d-code").value = it.fund_code;
   $("#d-hold").value = it.hold_amount ?? "";
   $("#d-cost").value = it.cost_amount ?? "";
@@ -86,17 +125,54 @@ function editHolding(it) {
   $("#d-target-rate").value = it.target_rate ?? "";
   $("#d-profit").value = it.stop_profit ?? "";
   $("#d-loss").value = it.stop_loss ?? "";
+  setDlgKind(isHold(it) ? "hold" : "watch");
   $("#dlg").showModal();
 }
+
+// 自选 → 持有:打开弹窗持有模式,预填代码待录金额
+function convertToHold(it) {
+  editingId = it.id;
+  $("#dlg-title").textContent = "转持有 · " + (it.name || it.fund_code);
+  $("#d-code").value = it.fund_code;
+  $("#d-hold").value = it.hold_amount ?? "";
+  $("#d-cost").value = it.cost_amount ?? "";
+  $("#d-target").value = it.target_price ?? "";
+  $("#d-target-rate").value = it.target_rate ?? "";
+  $("#d-profit").value = it.stop_profit ?? "";
+  $("#d-loss").value = it.stop_loss ?? "";
+  setDlgKind("hold");
+  $("#dlg").showModal();
+}
+
+// 持有 → 自选:清空金额,降级为纯关注(确认后 PUT)
+async function convertToWatch(it) {
+  if (!(await confirmDialog("转为自选后将清除持仓金额与成本，仅保留关注。确定?", { okText: "转自选" }))) return;
+  const body = JSON.stringify({
+    fund_code: it.fund_code, kind: "watch",
+    hold_amount: "", cost_amount: "",
+    target_price: it.target_price ?? "", target_rate: it.target_rate ?? "",
+    stop_profit: "", stop_loss: "",
+  });
+  const r = await fetch("/api/holdings/" + it.id, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    credentials: "same-origin", body,
+  });
+  if (r.status === 401) return showAuth();
+  load();
+}
+
 async function submitHolding() {
+  const watchMode = dlgKind === "watch";
   const body = JSON.stringify({
     fund_code: $("#d-code").value,
-    hold_amount: $("#d-hold").value,
-    cost_amount: $("#d-cost").value,
-    target_price: $("#d-target").value,
-    target_rate: $("#d-target-rate").value,
-    stop_profit: $("#d-profit").value,
-    stop_loss: $("#d-loss").value,
+    kind: dlgKind,
+    // 自选模式不提交金额字段(留空 → 后端存 null),避免误算盈亏
+    hold_amount: watchMode ? "" : $("#d-hold").value,
+    cost_amount: watchMode ? "" : $("#d-cost").value,
+    target_price: watchMode ? "" : $("#d-target").value,
+    target_rate: watchMode ? "" : $("#d-target-rate").value,
+    stop_profit: watchMode ? "" : $("#d-profit").value,
+    stop_loss: watchMode ? "" : $("#d-loss").value,
   });
   const url = editingId ? "/api/holdings/" + editingId : "/api/holdings";
   const method = editingId ? "PUT" : "POST";
@@ -105,8 +181,10 @@ async function submitHolding() {
   editingId = null;
   $("#dlg").close(); load();
 }
-async function del(id) {
-  if (!(await confirmDialog("移除这只自选?", { okText: "移除", danger: true }))) return;
+
+async function del(id, isWatch) {
+  const msg = isWatch ? "移除这只自选?" : "移除这只持有?（不影响已落袋的交易记录）";
+  if (!(await confirmDialog(msg, { okText: "移除", danger: true }))) return;
   const r = await fetch("/api/holdings/" + id, { method: "DELETE", credentials: "same-origin" });
   if (r.status === 401) return showAuth();
   load();
@@ -123,12 +201,12 @@ function staleHint(updatedAt) {
 
 function renderSummary(s) {
   const box = $("#summary");
-  if (!s || !s.count) { box.style.display = "none"; return; }
+  if (!s || !s.hold_count) { box.style.display = "none"; return; }
   const pl = s.total_today_pl, tot = s.total_pl, rate = s.total_return_rate;
   const now = new Date().toLocaleTimeString("zh-CN", { hour12: false });
   box.innerHTML = `
     <div class="s-head">
-      <span class="s-title">组合总览 · ${s.count} 只自选</span>
+      <span class="s-title">组合总览 · ${s.hold_count} 只持有</span>
       <span class="s-refresh">
         <span class="s-time">更新于 ${now}</span>
         <button onclick="load()" aria-label="刷新组合数据"><span class="s-refresh-ico">🔄</span> 刷新</button>
@@ -142,8 +220,65 @@ function renderSummary(s) {
       ${s.total_real_pl != null ? `<div>收盘真实盈亏<b class="${scls(s.total_real_pl)}">${sign(s.total_real_pl)}</b></div>` : ""}
       ${s.total_realized_pnl != null ? `<div>已落袋<b class="${scls(s.total_realized_pnl)}">${sign(s.total_realized_pnl)}</b></div>` : ""}
     </div>
-    ${tot != null && s.matched_count < s.count ? `<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>` : ""}`;
+    ${tot != null && s.matched_count < s.hold_count ? `<div class="s-note">累计盈亏与收益率基于 ${s.matched_count} 笔有成本记录</div>` : ""}`;
   box.style.display = "block";
+}
+
+// 持有卡片:今日估值 + 收盘真实盈亏 + 止盈止损 + 走势(完整口径)
+function renderHoldCard(it) {
+  const z = it.gszzl;
+  const pl = it.today_pl;
+  const cr = it.cost_return_rate;
+  const cardCls = ["card"];
+  if (it.hit_stop_profit) cardCls.push("hit-profit");
+  if (it.hit_stop_loss) cardCls.push("hit-loss");
+  const badges = [];
+  if (it.hit_stop_profit) badges.push(`<span class="badge profit">🎯 止盈</span>`);
+  if (it.hit_stop_loss) badges.push(`<span class="badge loss">⚠️ 止损</span>`);
+  return `<div class="${cardCls.join(" ")}">
+    <button type="button" class="del" aria-label="移除持有" onclick="del(${it.id}, false)">移除 ✕</button>
+    <button type="button" class="edit" aria-label="编辑持有" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑 ✎</button>
+    <div class="top">
+      <div><span class="fname">${it.name || it.fund_code}</span>
+           <span class="fcode">${it.fund_code}</span></div>
+      <div class="zdf ${cls(z)}">${z == null ? "—" : sign(z) + "%"}</div>
+    </div>
+    <div class="detail-link"><a href="#/fund/${it.fund_code}" onclick="event.stopPropagation()">查看详情 →</a></div>
+    <div class="metrics">
+      ${it.hold_amount != null ? `<div>持仓金额<b>${it.hold_amount}</b></div>` : ""}
+      ${pl != null ? `<div>今日盈亏<span class="tag">估算</span><b class="${cls(pl)}">${sign(pl)}</b></div>` : ""}
+      ${it.est_value != null ? `<div>估算市值<b>${it.est_value}</b></div>` : ""}
+      ${cr != null ? `<div>持仓收益率<span class="tag">估算</span><b class="${cls(cr)}">${sign(cr)}%</b></div>` : ""}
+      ${it.real_pl != null ? `<div>收盘真实盈亏<span class="tag nav">${it.nav_date || "官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>` : ""}
+      ${it.real_return_rate != null ? `<div>真实收益率<b class="${cls(it.real_return_rate)}">${sign(it.real_return_rate)}%</b></div>` : ""}
+      ${it.gap_to_target != null ? `<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>` : ""}
+    </div>
+    <div class="spark" data-code="${it.fund_code}"></div>
+    ${badges.length ? `<div class="badges">${badges.join("")}</div>` : ""}
+    <div class="card-foot">
+      <span class="gztime">${it.gztime ? ("估值时间 " + it.gztime) : ""}${staleHint(it.quote_updated_at)}</span>
+      <button type="button" class="link-btn" onclick='convertToWatch(${JSON.stringify(it).replace(/'/g, "&#39;")})'>转自选</button>
+    </div>
+  </div>`;
+}
+
+// 自选卡片:精简 —— 名称 + 当日涨幅 + 迷你走势 + 转持有/移除,不含金额/盈亏
+function renderWatchCard(it) {
+  const z = it.gszzl;
+  return `<div class="watch-card">
+    <div class="w-main" role="button" tabindex="0" onclick="location.hash='#/fund/${it.fund_code}'">
+      <div class="w-name"><span class="fname">${it.name || it.fund_code}</span>
+           <span class="fcode">${it.fund_code}</span></div>
+      <div class="w-right">
+        <span class="zdf ${cls(z)}">${z == null ? "—" : sign(z) + "%"}</span>
+        <span class="spark w-spark" data-code="${it.fund_code}"></span>
+      </div>
+    </div>
+    <div class="w-actions">
+      <button type="button" class="link-btn" onclick='convertToHold(${JSON.stringify(it).replace(/'/g, "&#39;")})'>转持有</button>
+      <button type="button" class="link-btn danger" onclick="del(${it.id}, true)">移除</button>
+    </div>
+  </div>`;
 }
 
 let _pfLoading = false;
@@ -152,53 +287,43 @@ async function load() {
   _pfLoading = true;
   const refreshBtn = document.querySelector("#summary .s-refresh button");
   if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add("spinning"); }
-  const list = $("#list");
-  if (list && !list.children.length) list.innerHTML = `<div class="empty">加载持仓中…</div>`;
+  const holdList = $("#hold-list");
+  if (holdList && !holdList.children.length) holdList.innerHTML = `<div class="empty">加载中…</div>`;
   try {
     const r = await fetch("/api/holdings", { credentials: "same-origin" });
     if (r.status === 401) { showAuth(); return; }
     if (!r.ok) throw new Error("holdings " + r.status);
     const data = await r.json();
     const items = data.items || [];
+    const holds = items.filter(isHold);
+    const watches = items.filter(it => !isHold(it));
+
     renderSummary(data.summary);
     loadAllocation();
-    if (!items.length) { $("#list").innerHTML = `<div class="empty">还没有自选，搜索基金加入吧 👆</div>`; return; }
-    $("#list").innerHTML = items.map(it => {
-    const z = it.gszzl;
-    const pl = it.today_pl;
-    const cr = it.cost_return_rate;
-    const cardCls = ["card"];
-    if (it.hit_stop_profit) cardCls.push("hit-profit");
-    if (it.hit_stop_loss) cardCls.push("hit-loss");
-    const badges = [];
-    if (it.hit_stop_profit) badges.push(`<span class="badge profit">🎯 止盈</span>`);
-    if (it.hit_stop_loss) badges.push(`<span class="badge loss">⚠️ 止损</span>`);
-    return `<div class="${cardCls.join(" ")}">
-      <button type="button" class="del" aria-label="移除自选" onclick="del(${it.id})">移除 ✕</button>
-      <button type="button" class="edit" aria-label="编辑持仓" onclick='editHolding(${JSON.stringify(it).replace(/'/g, "&#39;")})'>编辑 ✎</button>
-      <div class="top">
-        <div><span class="fname">${it.name || it.fund_code}</span>
-             <span class="fcode">${it.fund_code}</span></div>
-        <div class="zdf ${cls(z)}">${z == null ? "—" : sign(z) + "%"}</div>
-      </div>
-      <div class="detail-link"><a href="#/fund/${it.fund_code}" onclick="event.stopPropagation()">查看详情 →</a></div>
-      <div class="metrics">
-        ${it.hold_amount != null ? `<div>持仓金额<b>${it.hold_amount}</b></div>` : ""}
-        ${pl != null ? `<div>今日盈亏<span class="tag">估算</span><b class="${cls(pl)}">${sign(pl)}</b></div>` : ""}
-        ${it.est_value != null ? `<div>估算市值<b>${it.est_value}</b></div>` : ""}
-        ${cr != null ? `<div>持仓收益率<span class="tag">估算</span><b class="${cls(cr)}">${sign(cr)}%</b></div>` : ""}
-        ${it.real_pl != null ? `<div>收盘真实盈亏<span class="tag nav">${it.nav_date || "官方"}</span><b class="${cls(it.real_pl)}">${sign(it.real_pl)}</b></div>` : ""}
-        ${it.real_return_rate != null ? `<div>真实收益率<b class="${cls(it.real_return_rate)}">${sign(it.real_return_rate)}%</b></div>` : ""}
-        ${it.gap_to_target != null ? `<div>距目标净值<b>${sign(it.gap_to_target)}</b></div>` : ""}
-      </div>
-      <div class="spark" data-code="${it.fund_code}"></div>
-      ${badges.length ? `<div class="badges">${badges.join("")}</div>` : ""}
-      <div class="gztime">${it.gztime ? ("估值时间 " + it.gztime) : ""}${staleHint(it.quote_updated_at)}</div>
-    </div>`;
-    }).join("");
+
+    // 持有分区
+    $("#hold-list").innerHTML = holds.length
+      ? holds.map(renderHoldCard).join("")
+      : `<div class="empty">还没有持有。搜索基金选「💰 记持有」录入金额，这里会算今日盈亏与真实收益。</div>`;
+
+    // 自选分区
+    const watchSec = $("#watch-section");
+    $("#watch-count").textContent = watches.length ? `${watches.length} 只` : "";
+    if (watches.length) {
+      $("#watch-list").innerHTML = watches.map(renderWatchCard).join("");
+      watchSec.style.display = "block";
+    } else {
+      // 无自选时,若也无持有则给引导,否则整块隐藏保持清爽
+      if (!holds.length) {
+        $("#watch-list").innerHTML = `<div class="empty">搜索基金加入自选，随时关注涨跌 👆</div>`;
+        watchSec.style.display = "block";
+      } else {
+        watchSec.style.display = "none";
+      }
+    }
     loadSparklines(items);
   } catch (e) {
-    if (list) list.innerHTML = `<div class="empty">持仓加载失败，请检查网络后重试<br>
+    if (holdList) holdList.innerHTML = `<div class="empty">加载失败，请检查网络后重试<br>
       <button class="ghost" style="margin-top:12px" onclick="load()">重试</button></div>`;
     if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove("spinning"); }
   } finally {
@@ -268,7 +393,7 @@ function renderAllocation(s) {
     `<span class="leg-item"><i style="background:${ALLOC_PALETTE[i % ALLOC_PALETTE.length]}"></i>${a.cat} ${(a.ratio*100).toFixed(0)}%</span>`).join("");
   const c = s.concentration || {};
   box.innerHTML = `
-    <div class="s-head"><span class="s-title">资产配置 · ${s.holdings_count} 只</span></div>
+    <div class="s-head"><span class="s-title">资产配置 · ${s.holdings_count} 只持有</span></div>
     <div class="alloc-row">${allocationPieSvg(s.allocation)}<div class="alloc-legend">${legend}</div></div>
     ${c.top1_fund_code ? `<div class="s-note">持仓集中度:TOP1 ${c.top1_fund_code} ${(c.top1_ratio*100).toFixed(0)}%${c.warn ? ' · <b class="loss">集中度偏高(>40%)</b>' : ""} · 前3合计 ${(c.cr3*100).toFixed(0)}%</div>` : ""}`;
   box.style.display = "block";

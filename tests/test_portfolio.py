@@ -57,8 +57,8 @@ class _T(unittest.TestCase):
     def _hold(self, user_id, code, hold_amount, cost_amount):
         c = self._c()
         c.execute(
-            "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,created_at) "
-            "VALUES (?,?,?,?,datetime('now'))", (user_id, code, hold_amount, cost_amount),
+            "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,kind,created_at) "
+            "VALUES (?,?,?,?,'hold',datetime('now'))", (user_id, code, hold_amount, cost_amount),
         )
         c.commit()
         c.close()

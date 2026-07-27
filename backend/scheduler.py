@@ -517,6 +517,30 @@ def trigger_history_for(code, one_fn=None):
 
 # ---- 基金基本面:后台日更，详情页用（M8-B） ----
 
+def _refresh_one_profile(code):
+    """拉取单只基金基本面并落库。返回成功数(0/1)。"""
+    from backend.datasource.fund_profile import refresh_profile
+    conn = get_conn()
+    try:
+        return refresh_profile(conn, [code])
+    finally:
+        conn.close()
+
+
+def trigger_profile_for(code, one_fn=None):
+    """后台拉取单只基金基本面(不阻塞),供新增持仓/自选即时补基础面板。返回线程。"""
+    one_fn = one_fn or _refresh_one_profile
+
+    def _run():
+        _, status, error = _record_run("profile_one", lambda: one_fn(code))
+        if status != "ok":
+            print(f"[scheduler] 新增持仓基本面拉取失败 {code}: {error}")
+
+    t = threading.Thread(target=_run, name=f"profile-one-{code}", daemon=True)
+    t.start()
+    return t
+
+
 def _profile_target_codes(conn):
     """日更目标 = 当前持仓基金 ∪ 已被查过详情(fund_profile 已有记录)的基金。
 

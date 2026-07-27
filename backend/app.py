@@ -29,7 +29,7 @@ from backend.scheduler import (  # noqa: E402
     start_index_refresh,
     start_rank_refresh,
     start_history_refresh, trigger_history_for,
-    start_profile_refresh,
+    start_profile_refresh, trigger_profile_for,
     start_holdings_refresh,
     start_compare_refresh,
     start_nav_gap_check,
@@ -162,9 +162,10 @@ def enrich_holding(h, quote):
 def summarize(items):
     """富集项列表 → 组合总览汇总（纯计算）。
 
-    口径约定：总市值 / 今日盈亏累加所有有值的持仓；累计盈亏与总收益率
-    只对「同时具备 est_value 与 cost_amount」的子集计算，避免混入无成本
-    记录导致收益率失真。matched_count 供前端标注「基于 N 笔有成本记录」。
+    只有「持有」(kind=='hold') 计入市值/盈亏/收益率;「自选」(kind=='watch')
+    仅关注不占仓,不进任何金额汇总。累计盈亏与总收益率进一步只对「同时具备
+    est_value 与 cost_amount」的持有子集计算,避免无成本记录导致收益率失真。
+    matched_count 供前端标注「基于 N 笔有成本记录」。
     """
     total_today_pl = 0.0
     total_est_value = 0.0
@@ -174,7 +175,22 @@ def summarize(items):
     total_real_value = 0.0
     total_real_pl = 0.0
     real_count = 0
+    hold_count = 0
+    watch_count = 0
     for it in items:
+        # 持有判定:显式 kind='hold',或已有持仓金额/估算市值/真实市值(任一⟹持有)。
+        # 纯自选(kind='watch' 且无金额、无市值)只计 watch_count,不进金额汇总
+        # ——下方各累加项本就以 `is not None` 守卫,自选天然不贡献任何金额。
+        is_hold = (
+            it.get("kind") == "hold"
+            or it.get("hold_amount") is not None
+            or it.get("est_value") is not None
+            or it.get("real_value") is not None
+        )
+        if is_hold:
+            hold_count += 1
+        else:
+            watch_count += 1
         if it.get("today_pl") is not None:
             total_today_pl += it["today_pl"]
         if it.get("est_value") is not None:
@@ -196,6 +212,8 @@ def summarize(items):
     )
     return {
         "count": len(items),
+        "hold_count": hold_count,
+        "watch_count": watch_count,
         "total_today_pl": round(total_today_pl, 2),
         "total_est_value": round(total_est_value, 2),
         "total_cost": round(total_cost, 2),
@@ -236,18 +254,21 @@ def list_holdings(user_id):
 
 def add_holding(data, user_id):
     conn = get_conn()
+    hold_amount = _num(data.get("hold_amount"))
+    kind = _kind_of(data.get("kind"), hold_amount)
     conn.execute(
         "INSERT INTO holding(user_id,fund_code,hold_amount,cost_amount,target_rate,target_price,"
-        "stop_profit,stop_loss,created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))",
+        "stop_profit,stop_loss,kind,created_at) VALUES (?,?,?,?,?,?,?,?,?,datetime('now','localtime'))",
         (
             user_id,
             data.get("fund_code"),
-            _num(data.get("hold_amount")),
+            hold_amount,
             _num(data.get("cost_amount")),
             _num(data.get("target_rate")),
             _num(data.get("target_price")),
             _num(data.get("stop_profit")),
             _num(data.get("stop_loss")),
+            kind,
         ),
     )
     conn.commit()
@@ -259,6 +280,7 @@ def add_holding(data, user_id):
         trigger_quote_for(code)
         trigger_nav_for(code)     # 官方净值(nav/nav_prev/名称),不依赖 fundgz,真实盈亏即时可算
         trigger_history_for(code)  # 顺带拉历史序列,新持仓卡片几秒内有走势图
+        trigger_profile_for(code)  # 基本面(经理/规模/收益)即时补,避免详情页基础面板长期缺失
 
 
 def delete_holding(hid, user_id):
@@ -270,24 +292,34 @@ def delete_holding(hid, user_id):
 
 def update_holding(hid, data, user_id):
     conn = get_conn()
+    hold_amount = _num(data.get("hold_amount"))
+    kind = _kind_of(data.get("kind"), hold_amount)
     conn.execute(
         "UPDATE holding SET hold_amount=?,cost_amount=?,target_rate=?,"
-        "target_price=?,stop_profit=?,stop_loss=?,trailing_stop_pct=? "
+        "target_price=?,stop_profit=?,stop_loss=?,trailing_stop_pct=?,kind=? "
         "WHERE id=? AND user_id=?",
         (
-            _num(data.get("hold_amount")),
+            hold_amount,
             _num(data.get("cost_amount")),
             _num(data.get("target_rate")),
             _num(data.get("target_price")),
             _num(data.get("stop_profit")),
             _num(data.get("stop_loss")),
             _num(data.get("trailing_stop_pct")),
+            kind,
             hid,
             user_id,
         ),
     )
     conn.commit()
     conn.close()
+
+
+def _kind_of(raw, hold_amount):
+    """归一化 kind:显式传 'watch'/'hold' 则采信;否则按是否录持仓金额推断。"""
+    if raw in ("watch", "hold"):
+        return raw
+    return "hold" if hold_amount else "watch"
 
 
 def _num(v):
