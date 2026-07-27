@@ -113,19 +113,42 @@ class TestIsConfigured(OcrTestBase):
 
 class TestMatchFund(OcrTestBase):
     def test_name_fuzzy_match(self):
-        matched, cands = ocr_import._match_fund("易方达蓝筹", None)
+        matched, cands, mtype = ocr_import._match_fund("易方达蓝筹", None)
         self.assertEqual(matched, "005827")
+        self.assertEqual(mtype, "exact")  # 原样子串命中即精确
         self.assertTrue(any(c["fund_code"] == "005827" for c in cands))
 
     def test_code_takes_priority(self):
         # name 指向白酒，但 code 精确给机器人 → 以 code 命中为准
-        matched, _ = ocr_import._match_fund("招商中证白酒指数", "020608")
+        matched, _, mtype = ocr_import._match_fund("招商中证白酒指数", "020608")
         self.assertEqual(matched, "020608")
+        self.assertEqual(mtype, "exact")
 
     def test_no_match(self):
-        matched, cands = ocr_import._match_fund("查无此基金xyz", None)
+        matched, cands, mtype = ocr_import._match_fund("查无此基金xyz", None)
         self.assertIsNone(matched)
+        self.assertIsNone(mtype)
         self.assertEqual(cands, [])
+
+    def test_fuzzy_match_bridges_noise_word(self):
+        # App 简称漏了"发起"：识别名「…ETF联接C」 vs 库中「…ETF发起联接C」，
+        # 原样子串对不齐，去噪相似度兜底应命中 020608 并标记 fuzzy。
+        matched, cands, mtype = ocr_import._match_fund("南方中证机器人ETF联接C", None)
+        self.assertEqual(matched, "020608")
+        self.assertEqual(mtype, "fuzzy")
+        self.assertTrue(any(c["fund_code"] == "020608" for c in cands))
+
+    def test_fuzzy_tolerates_ocr_typo(self):
+        # OCR 少认一个字（"精选"→"精"），仍应模糊命中易方达蓝筹精选混合。
+        matched, _, mtype = ocr_import._match_fund("易方达蓝筹精混合", None)
+        self.assertEqual(matched, "005827")
+        self.assertEqual(mtype, "fuzzy")
+
+    def test_fuzzy_rejects_unrelated(self):
+        # 完全不相关的长串不应被强行模糊命中。
+        matched, _, mtype = ocr_import._match_fund("完全无关的随便什么名字abcdef", None)
+        self.assertIsNone(matched)
+        self.assertIsNone(mtype)
 
 
 class TestRecognizeGraceful(OcrTestBase):
