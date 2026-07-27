@@ -13,6 +13,7 @@
   FUNDSIGHT_AI_PROVIDER  anthropic（默认）| openai（含 OpenAI 兼容端点，如国产模型）
   FUNDSIGHT_AI_ENDPOINT  接口地址（不设按 provider 取默认）
   FUNDSIGHT_AI_MODEL     模型名（不设按 provider 取默认）
+  FUNDSIGHT_AI_MAX_TOKENS 单次回复 token 上限（不设默认 8192；推理模型需足够余量）
 
 合规：分析仅基于本地已缓存的公开数据；结尾强制免责，「预期未来」只作情景/风险提示，
 不给确定性买卖点或价格目标。
@@ -40,7 +41,10 @@ _DEFAULTS = {
 }
 
 MAX_TOOL_ROUNDS = 6      # tool-loop 硬上限：钉死外部请求次数与 token 成本
-MAX_TOKENS = 1500
+# 单次回复的 token 上限（可经 FUNDSIGHT_AI_MAX_TOKENS 覆盖）。
+# 默认给足余量：推理模型（reasoning model，如 glm/o系列）会把大量 token 花在隐藏
+# 思考上，且该上限把推理 token 一并计入——若卡得太低，正文会被从中间截断。
+MAX_TOKENS = 8192
 TIMEOUT = 60
 
 DISCLAIMER = (
@@ -80,6 +84,15 @@ def _endpoint(provider):
 
 def _model(provider):
     return os.environ.get("FUNDSIGHT_AI_MODEL") or _DEFAULTS[provider]["model"]
+
+
+def _max_tokens():
+    """单次回复 token 上限，可经 FUNDSIGHT_AI_MAX_TOKENS 覆盖；非法/非正回退默认。"""
+    try:
+        v = int(os.environ.get("FUNDSIGHT_AI_MAX_TOKENS") or MAX_TOKENS)
+    except (ValueError, TypeError):
+        return MAX_TOKENS
+    return v if v > 0 else MAX_TOKENS
 
 
 def is_configured():
@@ -130,7 +143,7 @@ def _call_anthropic(key, model, messages):
     }
     payload = {
         "model": model,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": _max_tokens(),
         "system": SYSTEM_PROMPT,
         "tools": _anthropic_tools(),
         "messages": messages,
@@ -149,6 +162,7 @@ def _call_anthropic(key, model, messages):
         "text": "".join(text_parts),
         "tool_calls": tool_calls,
         "done": done,
+        "truncated": resp.get("stop_reason") == "max_tokens",
     }
 
 
@@ -167,7 +181,7 @@ def _call_openai(key, model, messages):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
     payload = {
         "model": model,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": _max_tokens(),
         "tools": _openai_tools(),
         "messages": messages,
     }
@@ -188,6 +202,7 @@ def _call_openai(key, model, messages):
         "text": message.get("content") or "",
         "tool_calls": tool_calls,
         "done": done,
+        "truncated": choice.get("finish_reason") == "length",
     }
 
 
@@ -228,9 +243,15 @@ def run_chat(messages):
         for _ in range(MAX_TOOL_ROUNDS):
             norm = call(key, model, convo)
             if norm["done"] or not norm["tool_calls"]:
+                reply = norm["text"].strip()
+                if norm.get("truncated"):
+                    reply += (
+                        "\n\n（回复因达到长度上限被截断——如常出现，可在部署环境调高 "
+                        "FUNDSIGHT_AI_MAX_TOKENS，或换用非推理模型。）"
+                    )
                 return {
                     "ok": True,
-                    "reply": norm["text"].strip(),
+                    "reply": reply,
                     "tool_calls": used_tools,
                     "disclaimer": DISCLAIMER,
                 }
