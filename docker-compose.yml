@@ -4,6 +4,9 @@
 #   docker compose logs -f           看日志(含全量同步进度)
 #   docker compose down              停止(data/ 卷保留,自选持仓不丢)
 #
+# AI 分析助手密钥/端点配置:复制 .env.example 为 .env 并填入,
+# compose 会自动加载同目录 .env(.env 已被 .gitignore 排除,不入库)。
+#
 # 启动后浏览器访问 http://<本机IP>:8000
 services:
   fundsight:
@@ -17,4 +20,10 @@ services:
     environment:
       - PORT=8000
       - TZ=Asia/Shanghai
+      # AI 分析助手(全部可选,未设则 AI 功能优雅降级/按钮置灰)
+      # 取值见 .env / .env.example;此处用 ${VAR:-} 形式,未设时为空不报错
+      - FUNDSIGHT_AI_PROVIDER=${FUNDSIGHT_AI_PROVIDER:-}
+      - FUNDSIGHT_AI_ENDPOINT=${FUNDSIGHT_AI_ENDPOINT:-}
+      - FUNDSIGHT_AI_MODEL=${FUNDSIGHT_AI_MODEL:-}
+      - FUNDSIGHT_AI_API_KEY=${FUNDSIGHT_AI_API_KEY:-}
     restart: unless-stopped
