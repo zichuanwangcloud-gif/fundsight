@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """backend.datasource.fundgz 单元测试。
 
-不发起真实网络请求：用离线样本 JSONP 报文 mock urllib.request.urlopen。
+不发起真实网络请求：用离线样本 JSON 报文 mock urllib.request.urlopen。
+数据源为天天基金移动端 FundMNFInfo 接口(原 JSONP 接口已被上游下线)。
 """
 import sqlite3
 import unittest
@@ -10,11 +11,18 @@ from unittest.mock import patch, MagicMock
 
 from backend.datasource import fundgz
 
-# 离线样本报文，格式与天天基金 fundgz 接口一致
-SAMPLE_JSONP = (
-    'jsonpgz({"fundcode":"020608","name":"南方中证机器人ETF发起联接C",'
-    '"jzrq":"2026-07-02","dwjz":"1.2345","gsz":"1.2500","gszzl":"1.26",'
-    '"gztime":"2026-07-03 15:00"});'
+# 离线样本报文,格式与移动端 FundMNFInfo 接口一致(交易时段:GSZ 有值)
+SAMPLE_JSON = (
+    '{"Datas":[{"FCODE":"020608","SHORTNAME":"南方中证机器人ETF发起联接C",'
+    '"PDATE":"2026-07-24","NAV":"1.2345","ACCNAV":"1.2345","NAVCHGRT":"-3.30",'
+    '"GSZ":"1.2500","GSZZL":"1.26","GZTIME":"2026-07-27 14:30"}],'
+    '"ErrCode":0,"Success":true}'
+)
+# 非交易时段:GSZ/GSZZL/GZTIME 为 null,NAV(最近收盘)仍在
+SAMPLE_JSON_CLOSED = (
+    '{"Datas":[{"FCODE":"020608","SHORTNAME":"南方中证机器人ETF发起联接C",'
+    '"PDATE":"2026-07-24","NAV":"1.2345","NAVCHGRT":"-3.30",'
+    '"GSZ":null,"GSZZL":null,"GZTIME":null}],"ErrCode":0,"Success":true}'
 )
 
 
@@ -49,25 +57,46 @@ class TestF(unittest.TestCase):
 
 
 class TestFetchEstimate(unittest.TestCase):
-    """用离线样本报文 mock jsonpgz(...) 响应，验证解析逻辑，不打真实网络。"""
+    """用离线样本报文 mock FundMNFInfo 响应,验证解析逻辑,不打真实网络。"""
 
     @patch("backend.datasource.fundgz.urllib.request.urlopen")
-    def test_fetch_estimate_parses_sample_jsonp(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response(SAMPLE_JSONP)
+    def test_fetch_estimate_parses_sample_json(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response(SAMPLE_JSON)
 
         result = fundgz.fetch_estimate("020608")
 
         self.assertIsNotNone(result)
         self.assertEqual(result["fund_code"], "020608")
         self.assertEqual(result["name"], "南方中证机器人ETF发起联接C")
-        self.assertEqual(result["dwjz"], 1.2345)
+        self.assertEqual(result["dwjz"], 1.2345)   # NAV → dwjz(估算基准)
         self.assertEqual(result["gsz"], 1.2500)
         self.assertEqual(result["gszzl"], 1.26)
-        self.assertEqual(result["gztime"], "2026-07-03 15:00")
+        self.assertEqual(result["gztime"], "2026-07-27 14:30")
 
     @patch("backend.datasource.fundgz.urllib.request.urlopen")
-    def test_fetch_estimate_returns_none_when_pattern_not_found(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_response("not a jsonp payload at all")
+    def test_fetch_estimate_closed_market_null_gsz(self, mock_urlopen):
+        # 非交易时段:gsz/gszzl/gztime 为 None,但 dwjz(最近收盘)仍返回
+        mock_urlopen.return_value = _mock_response(SAMPLE_JSON_CLOSED)
+
+        result = fundgz.fetch_estimate("020608")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["dwjz"], 1.2345)
+        self.assertIsNone(result["gsz"])
+        self.assertIsNone(result["gszzl"])
+        self.assertIsNone(result["gztime"])
+
+    @patch("backend.datasource.fundgz.urllib.request.urlopen")
+    def test_fetch_estimate_returns_none_when_datas_empty(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response('{"Datas":null,"Success":false}')
+
+        result = fundgz.fetch_estimate("999999")
+
+        self.assertIsNone(result)
+
+    @patch("backend.datasource.fundgz.urllib.request.urlopen")
+    def test_fetch_estimate_returns_none_on_bad_json(self, mock_urlopen):
+        mock_urlopen.return_value = _mock_response("not json at all")
 
         result = fundgz.fetch_estimate("999999")
 
@@ -80,22 +109,6 @@ class TestFetchEstimate(unittest.TestCase):
         result = fundgz.fetch_estimate("020608")
 
         self.assertIsNone(result)
-
-    @patch("backend.datasource.fundgz.urllib.request.urlopen")
-    def test_fetch_estimate_handles_malformed_numeric_fields(self, mock_urlopen):
-        malformed = (
-            'jsonpgz({"fundcode":"020608","name":"测试基金",'
-            '"jzrq":"2026-07-02","dwjz":"","gsz":null,"gszzl":"abc",'
-            '"gztime":"2026-07-03 15:00"});'
-        )
-        mock_urlopen.return_value = _mock_response(malformed)
-
-        result = fundgz.fetch_estimate("020608")
-
-        self.assertIsNotNone(result)
-        self.assertIsNone(result["dwjz"])
-        self.assertIsNone(result["gsz"])
-        self.assertIsNone(result["gszzl"])
 
 
 class TestRefreshQuotes(unittest.TestCase):

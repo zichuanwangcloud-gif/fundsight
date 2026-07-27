@@ -57,7 +57,7 @@ def _fetch_via_pingzhongdata(code):
     ts_ms = last.get("x")
     if nav is None or ts_ms is None:
         return None
-    nav_date = datetime.datetime.utcfromtimestamp(ts_ms / 1000).strftime("%Y-%m-%d")
+    nav_date = _cst_date(ts_ms)
     # 上一交易日净值(倒数第二点),供"收盘真实盈亏"作基准 —— 不依赖 fundgz 的 dwjz
     nav_prev = _f(trend[-2].get("y")) if len(trend) >= 2 else None
     return {
@@ -115,6 +115,16 @@ def _f(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _cst_date(ts_ms):
+    """东财 pingzhongdata 的净值点时间戳是「北京时间当日零点」的毫秒值。
+
+    直接 utcfromtimestamp 会按 UTC 解读,把北京 00:00(=UTC 前一日 16:00)算成
+    前一天,导致净值日期整体早一天(如把 7-24 标成 7-23)。这里 +8 小时按东八区
+    还原真实交易日,消除 off-by-one。
+    """
+    return datetime.datetime.utcfromtimestamp(ts_ms / 1000 + 8 * 3600).strftime("%Y-%m-%d")
 
 
 def refresh_nav(conn, codes):

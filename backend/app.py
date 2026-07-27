@@ -125,10 +125,10 @@ def enrich_holding(h, quote):
         shares = h["hold_amount"] / q["dwjz"]
         item["today_pl"] = round(shares * (q["gsz"] - q["dwjz"]), 2)
         item["est_value"] = round(shares * q["gsz"], 2)
-    # 收盘真实盈亏（官方净值 nav）：与估算并存，份额同口径便于对照。
-    # 基准优先用 fundgz 的 dwjz(昨日单位净值);fundgz 接口不可用时回落到 nav 经路
-    # 回填的 nav_prev(上一交易日官方净值),保证官方口径不依赖 fundgz 也能算。
-    real_base = q["dwjz"] if q.get("dwjz") else q.get("nav_prev")
+    # 收盘真实盈亏（官方净值 nav）：反映"最近一个官方交易日"的盈亏。
+    # 基准优先用 nav_prev(上一交易日官方净值);缺失时回落 dwjz(旧库/兜底)。
+    # 注:dwjz 现在是"最近收盘价"(=nav),用它当基准会把真实盈亏算成 0,故 nav_prev 优先。
+    real_base = q.get("nav_prev") or q.get("dwjz")
     if nav is not None and h["hold_amount"] and real_base:
         real_shares = h["hold_amount"] / real_base
         item["nav"] = nav

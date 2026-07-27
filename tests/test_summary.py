@@ -123,13 +123,15 @@ class TestEnrichHolding(unittest.TestCase):
         self.assertEqual(item["real_pl"], 300.0)
         self.assertEqual(item["nav_date"], "2026-07-08")
 
-    def test_dwjz_preferred_over_nav_prev(self):
-        # 两者都在时优先 dwjz(fundgz 昨收),保持既有口径不变。
-        # dwjz=1.0 nav=1.03 → real_pl=300;若误用 nav_prev=2.0 则会得负值。
+    def test_nav_prev_preferred_over_dwjz(self):
+        # nav_prev(上一交易日官方净值)与 dwjz 都在时优先 nav_prev,使"收盘真实盈亏"
+        # 反映最近官方交易日的涨跌;dwjz 现为最近收盘价(=nav),用它会把盈亏算成 0。
+        # nav_prev=1.0 nav=1.03 → real_pl=300;若误用 dwjz=1.03 则 real_pl=0。
         h = self._holding(hold_amount=10000.0, cost_amount=8500.0)
         item = enrich_holding(h, self._quote(
-            dwjz=1.0, nav=1.03, nav_date="2026-07-08", nav_prev=2.0))
+            dwjz=1.03, nav=1.03, nav_date="2026-07-24", nav_prev=1.0))
         self.assertEqual(item["real_pl"], 300.0)
+        self.assertEqual(item["real_value"], 10300.0)
 
     def test_stop_profit_uses_real_rate_when_nav_present(self):
         # 止盈改用真实收益率:估算收益率 23.53% 触发,但真实收益率仅 3%
