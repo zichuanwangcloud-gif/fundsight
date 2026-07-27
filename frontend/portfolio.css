@@ -6,10 +6,17 @@
 .leg-item { display: inline-flex; align-items: center; gap: 5px; }
 .leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 
-/* 分区标题(持有 / 自选) */
-.sec-head { display: flex; align-items: baseline; gap: 8px; margin: 18px 2px 8px; }
-.sec-title { font-size: 15px; font-weight: 600; color: var(--ink-1); }
-.sec-sub { font-size: 12px; color: var(--ink-2); }
+/* 持有 / 自选 分区 tab */
+.pf-tabs { display: flex; gap: 4px; margin: 14px 2px 12px; border-bottom: 1px solid var(--line, #e5e7eb); }
+.pf-tab {
+  flex: 1; padding: 10px 0; background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  color: var(--ink-2); font-size: 15px;
+}
+.pf-tab.active { color: var(--brand, #2b5bd7); border-bottom-color: var(--brand, #2b5bd7); font-weight: 600; }
+.pf-tab-n { font-size: 12px; color: var(--ink-2); }
+.pf-tab.active .pf-tab-n { color: var(--brand, #2b5bd7); }
+.pf-panel[hidden] { display: none; }
 
 /* 弹窗:自选/持有 分段切换 */
 .dlg-kind { display: flex; gap: 8px; margin: 4px 0 6px; }
