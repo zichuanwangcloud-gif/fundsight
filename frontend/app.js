@@ -92,9 +92,9 @@ document.addEventListener("keydown", e => {
 
 function currentRoute() {
   // #/market | #/portfolio | #/fund/020608
-  const raw = (location.hash || "#/portfolio").replace(/^#\//, "");
+  const raw = (location.hash || "#/home").replace(/^#\//, "");
   const [key, ...rest] = raw.split("/");
-  return { key: key || "portfolio", param: rest.join("/") };
+  return { key: key || "home", param: rest.join("/") };
 }
 
 function renderRoute() {
@@ -112,7 +112,7 @@ window.addEventListener("hashchange", renderRoute);
 
 // 首屏渲染由 auth.js 在确认登录态后调用(未登录先显示门控)。
 function startApp() {
-  if (!location.hash) location.hash = "#/portfolio";  // 默认「我的持仓」
+  if (!location.hash) location.hash = "#/home";  // 默认「今天」概览
   renderRoute();
   if (typeof mountAiWidget === "function") mountAiWidget();  // AI 悬浮助手(登录后挂载)
 }

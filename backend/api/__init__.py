@@ -36,3 +36,5 @@ from backend.api import ocr_import; ALL_ROUTES += ocr_import.ROUTES  # noqa: E40
 from backend.api import rank; ALL_ROUTES += rank.ROUTES  # noqa: E401,E402
 # AI 分析 + MCP:聊天窗/一键分析(tool-loop) + /mcp(JSON-RPC 供外部 MCP 客户端)
 from backend.api import ai; ALL_ROUTES += ai.ROUTES  # noqa: E401,E402
+# 首页概览「今天」:薄聚合(组合/今日盈亏/目标进度/提醒) + AI 早晚报(按需缓存)
+from backend.api import home; ALL_ROUTES += home.ROUTES  # noqa: E401,E402
