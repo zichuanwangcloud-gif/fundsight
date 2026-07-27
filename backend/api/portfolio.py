@@ -37,8 +37,10 @@ def _compute_summary(conn, user_id):
     """
     from backend.api.transactions import resolve_position, position_market_value
 
+    # 自选(kind='watch' 且无持仓金额)不占仓:其 hold_amount 为空 →
+    # resolve_position/position_market_value 得 None → 自然被下方 skip,无需显式过滤。
     codes = [r["fund_code"] for r in conn.execute(
-        "SELECT fund_code FROM holding WHERE user_id=? "
+        "SELECT fund_code FROM holding WHERE user_id=? AND NOT (COALESCE(kind,'')='watch' AND hold_amount IS NULL) "
         "UNION SELECT fund_code FROM fund_transaction WHERE user_id=?",
         (user_id, user_id),
     ).fetchall()]
@@ -162,7 +164,8 @@ def _pearson(xs, ys):
 def _compute_portfolio_risk(conn, user_id):
     from datetime import date, timedelta
     holds = conn.execute(
-        "SELECT fund_code, hold_amount FROM holding WHERE user_id=?", (user_id,)
+        "SELECT fund_code, hold_amount FROM holding "
+        "WHERE user_id=? AND hold_amount IS NOT NULL", (user_id,)
     ).fetchall()
     codes = [h["fund_code"] for h in holds]
     if not codes:

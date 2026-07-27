@@ -299,8 +299,10 @@ class TestGetFundDetail(unittest.TestCase):
         m1.assert_called_once()
         m2.assert_called_once()
 
-    def test_partial_cache_present_does_not_trigger_fetch(self):
-        # 只要 profile 或 series 任一项已有数据,即不视为"完全缺失",不抓取
+    def test_profile_missing_backfills_even_with_series(self):
+        # 回归:有净值历史但缺基本面时,仍应补抓基本面。
+        # 旧守卫 `profile is None and not series` 用「与」——series 非空即不补,
+        # 导致这类基金详情页基础面板长期显示「暂缺」。现改为任一缺失即补。
         conn = sqlite3.connect(self.path)
         conn.execute(
             "INSERT INTO fund_nav_history(fund_code,nav_date,nav,equity_return) "
@@ -309,11 +311,9 @@ class TestGetFundDetail(unittest.TestCase):
         conn.commit()
         conn.close()
         ctx = Ctx(params={"code": "020608"})
-        with patch("backend.datasource.fund_profile.refresh_profile") as m1, \
-             patch("backend.datasource.nav_history.refresh_nav_history") as m2:
+        with patch("backend.datasource.fund_profile.refresh_profile") as m1:
             fund_detail.get_fund_detail(ctx)
-        m1.assert_not_called()
-        m2.assert_not_called()
+        m1.assert_called_once()  # 基本面缺失 → 补抓一次
 
     def test_missing_code_returns_400(self):
         result = fund_detail.get_fund_detail(Ctx(params={}))

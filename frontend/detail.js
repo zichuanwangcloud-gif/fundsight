@@ -27,7 +27,8 @@ function renderDetail(view, code) {
       <button class="ghost back" onclick="history.back()">← 返回</button>
       <button class="d-ai-btn" id="d-ai-btn"
               onclick="aiAnalyzeFund(_detailCode)">🤖 AI 分析</button>
-      <button class="primary" id="d-add-btn" onclick="addToHoldings()">＋ 加自选</button>
+      <button class="ghost" id="d-watch-btn" onclick="addFromDetail('watch')">＋ 自选</button>
+      <button class="primary" id="d-hold-btn" onclick="addFromDetail('hold')">💰 记持有</button>
     </div>
     <div id="d-profile" class="d-profile"><div class="d-loading">加载中…</div></div>
     <div id="d-fundamentals" class="d-profile" hidden></div>
@@ -248,19 +249,25 @@ function renderDetailChart(series) {
   });
 }
 
-async function addToHoldings() {
-  const btn = $("#d-add-btn");
+// 详情页加入自选/持有。函数名带 FromDetail 后缀,避免与 market.js 的
+// 全局 addToHoldings(code, btn) 同名覆盖(两文件都在全局作用域,后加载者会覆盖前者)。
+async function addFromDetail(kind) {
+  kind = kind === "hold" ? "hold" : "watch";
+  const btn = kind === "hold" ? $("#d-hold-btn") : $("#d-watch-btn");
   btn.disabled = true;
   try {
     const r = await fetch("/api/holdings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ fund_code: _detailCode }),
+      body: JSON.stringify({ fund_code: _detailCode, kind }),
     });
     if (r.status === 401) { showAuth(); return; }
-    if (r.ok) { btn.textContent = "已加入自选 ✓"; }
-    else { btn.textContent = "加入失败,重试"; }
+    if (r.ok) {
+      btn.textContent = kind === "hold" ? "已加入持有 ✓" : "已加入自选 ✓";
+      // 记持有需录入金额才有真实收益,引导去持仓页补录
+      if (kind === "hold") setTimeout(() => { location.hash = "#/portfolio"; }, 600);
+    } else { btn.textContent = "加入失败,重试"; }
   } catch {
     btn.textContent = "加入失败,重试";
   } finally {

@@ -5,3 +5,41 @@
 .alloc-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 12px; color: var(--ink-2); }
 .leg-item { display: inline-flex; align-items: center; gap: 5px; }
 .leg-item i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+
+/* 分区标题(持有 / 自选) */
+.sec-head { display: flex; align-items: baseline; gap: 8px; margin: 18px 2px 8px; }
+.sec-title { font-size: 15px; font-weight: 600; color: var(--ink-1); }
+.sec-sub { font-size: 12px; color: var(--ink-2); }
+
+/* 弹窗:自选/持有 分段切换 */
+.dlg-kind { display: flex; gap: 8px; margin: 4px 0 6px; }
+.dlg-kind .kbtn {
+  flex: 1; padding: 8px 0; border: 1px solid var(--line, #d9dde3); border-radius: 8px;
+  background: var(--bg-2, #f4f5f7); color: var(--ink-2); font-size: 14px; cursor: pointer;
+}
+.dlg-kind .kbtn.active {
+  border-color: var(--brand, #2b5bd7); background: var(--brand, #2b5bd7); color: #fff; font-weight: 600;
+}
+.dlg-hint { font-size: 12px; color: var(--ink-2); margin: 0 2px 8px; line-height: 1.5; }
+
+/* 持有卡片底部:估值时间 + 转自选 */
+.card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.link-btn {
+  background: none; border: none; color: var(--brand, #2b5bd7); font-size: 12px; cursor: pointer; padding: 2px 4px;
+}
+.link-btn.danger { color: var(--down, #0f9d58); }
+
+/* 自选卡片(精简行:名称 + 涨幅 + 迷你走势 + 操作) */
+.watch-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; margin: 8px 0; border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px; background: var(--card, #fff);
+}
+.watch-card .w-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 1; cursor: pointer; min-width: 0; }
+.watch-card .w-name { min-width: 0; }
+.watch-card .fname { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-card .fcode { font-size: 12px; color: var(--ink-2); }
+.watch-card .w-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.watch-card .w-spark { display: inline-flex; align-items: center; }
+.watch-card .w-actions { display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+

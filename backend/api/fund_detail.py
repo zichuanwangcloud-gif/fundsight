@@ -93,11 +93,16 @@ def get_fund_detail(ctx):
     try:
         profile = _read_profile(conn, code)
         series = _read_series(conn, code, days)
-        if profile is None and not series:
-            # 缓存完全没有该基金的数据(首次访问)→ 低频抓一次入库再读
+        # 按需补抓要「分字段」判断:profile 与 series 各自独立缺失即各自补。
+        # 旧写法 `profile is None and not series` 用「与」——当某基金有净值历史
+        # 但没有基本面时(如仅在持仓刷新里进过 nav_history),永不补 profile,
+        # 详情页基础面板长期显示「暂缺」。改为任一缺失即补对应数据。
+        if profile is None or not series:
             _ensure_cached(conn, code)
-            profile = _read_profile(conn, code)
-            series = _read_series(conn, code, days)
+            if profile is None:
+                profile = _read_profile(conn, code)
+            if not series:
+                series = _read_series(conn, code, days)
         # 今日盘中时序缺失则后台补采(不阻塞,前端轮询即见)
         _ensure_intraday_seed(conn, code)
         return {"profile": profile, "series": series}
