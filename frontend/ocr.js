@@ -135,13 +135,20 @@ function _renderConfirm(rows) {
       `<option value="${c.fund_code}" ${c.fund_code === r.matched_code ? "selected" : ""}>${c.name}（${c.fund_code}）</option>`
     ).join("");
     const codeVal = r.matched_code || r.code || "";
-    const matchCls = r.matched_code ? "" : "ocr-unmatched";
+    // 三态：exact 精确命中；fuzzy 去噪相似度疑似(预选但需核对)；否则未匹配。
+    const isExact = r.match_type === "exact";
+    const isFuzzy = r.match_type === "fuzzy";
+    const matchCls = isExact ? "" : (isFuzzy ? "ocr-fuzzy" : "ocr-unmatched");
     // 固定模板通道读不出基金名，改显示名称裁图供用户核对后搜索选码。
     const nameCell = r.name_image
       ? `<img class="ocr-nameimg" src="${r.name_image}" alt="基金名截图">
          <span class="ocr-rate">按截图搜索选码 →</span>`
       : `${_esc(r.name || "(未识别名称)")}
          ${r.profit_rate != null ? `<span class="ocr-rate">识别收益率 ${r.profit_rate}%</span>` : ""}`;
+    // 非精确命中(疑似/未匹配)都给出搜索框，方便下拉候选不对时手动改。
+    const warn = isFuzzy
+      ? `<span class="ocr-hint">模糊匹配，请核对代码</span>`
+      : (isExact ? "" : `<span class="ocr-warn">未匹配到，请核对代码</span>`);
     return `<div class="ocr-row ${matchCls}" data-i="${i}">
       <div class="ocr-cell ocr-name" title="${_esc(r.name || "")}">
         <label><input type="checkbox" class="ocr-inc" ${codeVal ? "checked" : ""}> ${nameCell}</label>
@@ -150,9 +157,9 @@ function _renderConfirm(rows) {
         <input class="ocr-code" placeholder="基金代码" value="${codeVal}">
         ${cand.length ? `<select class="ocr-cand" onchange="this.closest('.ocr-row').querySelector('.ocr-code').value=this.value">
           <option value="">选候选…</option>${opts}</select>` : ""}
-        ${!cand.length ? `<input class="ocr-search" placeholder="搜名称/代码选码" oninput="_ocrRowSearch(this)" autocomplete="off">
+        ${!isExact ? `<input class="ocr-search" placeholder="搜名称/代码选码" oninput="_ocrRowSearch(this)" autocomplete="off">
           <div class="ocr-sug"></div>` : ""}
-        ${r.matched_code ? "" : `<span class="ocr-warn">未匹配到，请核对代码</span>`}
+        ${warn}
       </div>
       <div class="ocr-cell"><input class="ocr-hold" type="number" step="0.01" placeholder="持仓金额" value="${r.hold_amount ?? ""}"></div>
       <div class="ocr-cell"><input class="ocr-cost" type="number" step="0.01" placeholder="成本" value="${r.cost_amount ?? ""}"></div>

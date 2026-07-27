@@ -14,10 +14,32 @@
 - 外部识别调用收敛在 datasource/vision_ocr.py(唯一对外接口),本模块只做匹配与落库。
 """
 import base64
+import difflib
 import re
 
 from backend.models.db import get_conn
 from backend.datasource import vision_ocr
+
+# 基金全称里"可有可无"的成立方式/结构词。App 简称常省略,官方注册名却带着,
+# 导致同一只基金两边名称对不齐(如「…ETF发起式联接C」vs「…ETF联接C」)。
+# 匹配前两边都抹掉这些噪声词,让模糊比对聚焦真正区分基金的主体名。
+_NOISE_WORDS = (
+    "发起式", "发起", "定期开放", "定开", "持有期",
+    "(LOF)", "（LOF）", "(QDII)", "（QDII）", "(FOF)", "（FOF）",
+)
+# 相似度阈值:≥ SUGGEST 才作为"疑似"给出预选(仍需用户确认);
+# 只有 ≥ FLOOR 的候选才进下拉,避免塞入明显不相关项。
+_FUZZY_SUGGEST = 0.55
+_FUZZY_FLOOR = 0.34
+
+
+def _norm_name(s):
+    """归一化基金名用于模糊比对:去噪声词、去空白/括号/间隔号,统一大写。"""
+    s = (s or "").strip()
+    for w in _NOISE_WORDS:
+        s = s.replace(w, "")
+    s = re.sub(r"[\s()（）·・]", "", s)
+    return s.upper()
 
 # 上传体量上限(解码后字节)。8MB 足够手机截图,防超大 body 拖垮内存。
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
@@ -47,14 +69,39 @@ def _decode_data_url(image):
     return raw, mime
 
 
-def _match_fund(name, code):
-    """按识别到的 name/code 查本地 fund_list,返回 (matched_code, candidates)。
+def _fuzzy_candidates(conn, name):
+    """名称对不齐(如插入了"发起式")时的兜底:去噪归一化 + 相似度排序。
 
-    code 命中优先(精确);否则用 name LIKE 模糊匹配。candidates 供前端下拉纠正。
-    纯读本地表(参照 app.search_funds),不触外部接口。
+    先用归一名的前几字做锚点 LIKE 召回同系基金(避免全表扫描),再用
+    difflib 比相似度排序。返回按相似度降序的 [(score, row_dict), ...]。
+    """
+    target = _norm_name(name)
+    if len(target) < 3:
+        return []
+    anchor = target[:4]  # 通常含公司+主题起始,足够召回同系基金
+    rows = conn.execute(
+        "SELECT fund_code,name,fund_type FROM fund_list WHERE name LIKE ? LIMIT 200",
+        (f"%{anchor}%",),
+    ).fetchall()
+    scored = []
+    for r in rows:
+        score = difflib.SequenceMatcher(None, target, _norm_name(r["name"])).ratio()
+        if score >= _FUZZY_FLOOR:
+            scored.append((score, dict(r)))
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return scored
+
+
+def _match_fund(name, code):
+    """按识别到的 name/code 查本地 fund_list,返回 (matched_code, candidates, match_type)。
+
+    优先级:code 精确 → name 原样子串精确 → 去噪相似度模糊(兜底)。
+    match_type ∈ {"exact","fuzzy",None}:fuzzy 为"疑似",预选但需用户在确认页核对。
+    candidates 供前端下拉纠正。纯读本地表(参照 app.search_funds),不触外部接口。
     """
     conn = get_conn()
     matched = None
+    match_type = None
     candidates = []
     try:
         code = (code or "").strip()
@@ -64,9 +111,11 @@ def _match_fund(name, code):
             ).fetchone()
             if row:
                 matched = row["fund_code"]
+                match_type = "exact"
                 candidates.append(dict(row))
+        name = (name or "").strip()
         if name:
-            like = f"%{name.strip()}%"
+            like = f"%{name}%"
             rows = conn.execute(
                 "SELECT fund_code,name,fund_type FROM fund_list WHERE name LIKE ? LIMIT 5",
                 (like,),
@@ -75,11 +124,21 @@ def _match_fund(name, code):
                 d = dict(r)
                 if d["fund_code"] not in [c["fund_code"] for c in candidates]:
                     candidates.append(d)
-            if matched is None and rows:
+            if rows and matched is None:
                 matched = rows[0]["fund_code"]
+                match_type = "exact"
+            # 原样子串匹配不到 → 去噪相似度兜底(处理"发起式"插入、OCR 错字等)
+            if matched is None:
+                scored = _fuzzy_candidates(conn, name)
+                for _, d in scored:
+                    if d["fund_code"] not in [c["fund_code"] for c in candidates]:
+                        candidates.append(d)
+                if scored and scored[0][0] >= _FUZZY_SUGGEST:
+                    matched = scored[0][1]["fund_code"]
+                    match_type = "fuzzy"
     finally:
         conn.close()
-    return matched, candidates[:5]
+    return matched, candidates[:5], match_type
 
 
 def recognize(image, user_id):
@@ -96,7 +155,7 @@ def recognize(image, user_id):
         return {"configured": True, "error": result.get("error") or "识别失败"}
     rows = []
     for r in result.get("rows", []):
-        matched, candidates = _match_fund(r.get("name"), r.get("code"))
+        matched, candidates, match_type = _match_fund(r.get("name"), r.get("code"))
         # 成本反推:成本 = 持仓金额 - 收益(两者都有时)
         cost = r.get("cost")
         if cost is None and r.get("hold_amount") is not None and r.get("profit") is not None:
@@ -109,6 +168,7 @@ def recognize(image, user_id):
             "profit_rate": r.get("profit_rate"),
             "cost_amount": cost,
             "matched_code": matched,
+            "match_type": match_type,
             "candidates": candidates,
         }
         # 固定模板通道无法读基金名,改附名称裁图(base64),交确认页由用户核对搜索。
